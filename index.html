@@ -140,7 +140,7 @@
       <!-- 추출 항목 (수정 가능) -->
       <div id="fields" class="mt-5 space-y-4" hidden>
         <div>
-          <label class="block text-[12px] font-medium text-navy-700 mb-1.5">거래처명</label>
+          <label class="block text-[12px] font-medium text-navy-700 mb-1.5">골프장명 <span class="text-navy-600/45 font-normal">(직접 입력)</span></label>
           <input id="fVendor" type="text" placeholder="예) ○○컨트리클럽"
                  class="w-full border border-navy-900/15 rounded-xl px-4 py-3 text-[15px] focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
         </div>
@@ -150,11 +150,14 @@
                  class="w-full border border-navy-900/15 rounded-xl px-4 py-3 text-[15px] focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
         </div>
         <div>
-          <label class="block text-[12px] font-medium text-navy-700 mb-1.5">금액 (합계액)</label>
-          <div class="relative">
-            <input id="fAmount" type="text" inputmode="numeric" placeholder="0"
-                   class="w-full border border-navy-900/15 rounded-xl px-4 py-3 text-[15px] text-right pr-10 focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
-            <span class="absolute right-4 top-1/2 -translate-y-1/2 text-[14px] text-navy-600/60">원</span>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="block text-[12px] font-medium text-navy-700">금액 (영수증별 · 자동 합산)</label>
+            <button id="addAmountBtn" type="button" class="text-[12px] text-gold-500">+ 금액 추가</button>
+          </div>
+          <div id="amountList" class="space-y-2"></div>
+          <div class="flex items-center justify-between mt-3 pt-3 border-t border-navy-900/10">
+            <span class="text-[13px] font-medium text-navy-700">합계</span>
+            <span id="amountTotal" class="text-[16px] font-semibold text-navy-900">0원</span>
           </div>
         </div>
         <button id="toPreviewBtn"
@@ -260,7 +263,7 @@
      ===================================================================== */
   const $ = (id) => document.getElementById(id);
   const screens = ['authScreen','homeScreen','captureScreen','previewScreen'];
-  const state = { emp:'', type:'', photoDataUrl:'', vendor:'', date:'', amount:'' };
+  const state = { emp:'', type:'', photoDataUrl:'', vendor:'', date:'', amount:'', amounts:[] };
 
   function show(id){
     screens.forEach(s => $(s).hidden = (s !== id));
@@ -280,6 +283,10 @@
   function getSavedEmp(){ try { return localStorage.getItem('emp_no') || ''; } catch(e){ return ''; } }
   function saveEmp(v){ try { localStorage.setItem('emp_no', v); } catch(e){} }
   function clearEmp(){ try { localStorage.removeItem('emp_no'); } catch(e){} }
+
+  // 골프장명 기억 (같은 골프장 반복 입력 줄이기 — 직접 수정 가능)
+  function getSavedVendor(){ try { return localStorage.getItem('last_vendor') || ''; } catch(e){ return ''; } }
+  function saveVendor(v){ try { if(v) localStorage.setItem('last_vendor', v); } catch(e){} }
 
   function boot(){
     const saved = getSavedEmp();
@@ -324,10 +331,12 @@
      (2) 촬영 → 추출
      ===================================================================== */
   function resetCapture(){
-    state.photoDataUrl=''; state.vendor=''; state.date=''; state.amount='';
+    state.photoDataUrl=''; state.vendor=''; state.date=''; state.amount=''; state.amounts=[];
     $('photoPreview').classList.add('hidden'); $('photoPlaceholder').classList.remove('hidden');
     $('retakeBtn').hidden = true; $('fields').hidden = true; $('ocrStatus').hidden = true;
-    $('photoInput').value=''; $('fVendor').value=''; $('fDate').value=''; $('fAmount').value='';
+    $('photoSize').hidden = true;
+    $('photoInput').value=''; $('fVendor').value = getSavedVendor(); $('fDate').value='';
+    $('amountList').innerHTML=''; $('amountTotal').textContent='0원';
   }
   $('retakeBtn').addEventListener('click', (e)=>{ e.preventDefault(); $('photoInput').click(); });
 
@@ -388,6 +397,7 @@
     $('fields').hidden = true;
     if (!CONFIG.GOOGLE_VISION_KEY){
       $('fDate').value = new Date().toISOString().slice(0,10);
+      state.amounts = [0]; renderAmounts();
       $('fields').hidden = false; return;
     }
     $('ocrStatus').hidden = false;
@@ -412,14 +422,16 @@
       const text = r.fullTextAnnotation?.text
                  || r.textAnnotations?.[0]?.description || '';
       const parsed = parseReceipt(text);
-      $('fVendor').value = parsed.vendor;
       $('fDate').value   = parsed.date || new Date().toISOString().slice(0,10);
-      $('fAmount').value = comma(parsed.amount);
-      if (!parsed.vendor || !parsed.amount) toast('일부 항목은 확인 후 직접 수정해 주세요.');
+      state.amounts = parsed.amounts.length ? parsed.amounts.slice() : [0];
+      renderAmounts();
+      if (!parsed.amounts.length) toast('금액을 인식하지 못했습니다. 직접 입력해 주세요.');
+      else toast(`캐디피 ${parsed.amounts.length}건 감지 — 확인 후 발송하세요.`);
     } catch(err){
       console.error(err);
       toast('자동 추출 실패 — 직접 입력해 주세요.');
       $('fDate').value = new Date().toISOString().slice(0,10);
+      state.amounts = [0]; renderAmounts();
     } finally {
       $('ocrStatus').hidden = true;
       $('fields').hidden = false;
@@ -433,9 +445,8 @@
   function parseReceipt(text){
     const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
     return {
-      date:   extractDate(text),
-      amount: extractAmount(lines),
-      vendor: extractVendor(lines)
+      date:    extractDate(text),
+      amounts: extractAmounts(lines)   // 영수증별 금액 배열 (골프장명은 직접 입력)
     };
   }
   function extractDate(text){
@@ -445,50 +456,100 @@
     const pad = n => String(n).padStart(2,'0');
     return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
   }
-  function extractAmount(lines){
-    const TOTAL = /(합\s*계|합계액|받을\s*금액|결제\s*금액|청구\s*금액|총\s*금?액|판매금액|받을돈)/;
-    const numRe = /([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,})/g;
-    const cands = [];
-    lines.forEach((ln,i)=>{
-      if (TOTAL.test(ln)){
-        // 같은 줄 + 다음 줄에서 숫자 탐색 (영수증은 라벨과 금액이 줄바꿈되는 경우 많음)
-        const scope = ln + ' ' + (lines[i+1]||'');
-        let mm; while((mm = numRe.exec(scope))) cands.push(parseInt(mm[1].replace(/,/g,''),10));
-      }
-    });
-    if (cands.length) return String(Math.max(...cands));
-    // 합계 키워드를 못 찾으면, 콤마가 있는(=금액일 가능성 높은) 숫자 중 최댓값
-    const all = [];
-    lines.forEach(ln=>{ let mm; const re=/([0-9]{1,3}(?:,[0-9]{3})+)/g;
-      while((mm=re.exec(ln))) all.push(parseInt(mm[1].replace(/,/g,''),10)); });
-    return all.length ? String(Math.max(...all)) : '';
-  }
-  function extractVendor(lines){
-    // 1) '상호'/'상 호'/'가맹점명' 라벨 옆 값
-    for (const ln of lines){
-      const m = ln.match(/(?:상\s*호|가맹점명?|점\s*포\s*명)\s*[:：]?\s*(.+)/);
-      if (m && m[1].trim().length>1) return m[1].trim().replace(/[:：].*$/,'').trim();
-    }
-    // 2) 상단부에서 한글이 포함되고 숫자/금액/날짜가 아닌 첫 줄을 상호로 추정
-    for (const ln of lines.slice(0,6)){
-      if (/[가-힣]/.test(ln) && !/[0-9]{3,}/.test(ln)
-          && !/(영수증|간이|현금|카드|승인|사업자|대표자|주소|전화|tel)/i.test(ln)
-          && ln.length>=2 && ln.length<=25) return ln;
-    }
-    return '';
-  }
+  // 캐디피 영수증: '캐디피'가 있는 줄의 '같은 행' 금액을 수집해 합산.
+  // (캐디피 표기를 못 찾을 때만 합계류 키워드로 폴백)
+  function extractAmounts(lines){
+    const numAll = (s)=>{                    // 문자열에서 금액 후보 모두
+      const re=/([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,})/g; const out=[]; let mm;
+      while((mm=re.exec(s))) out.push(parseInt(mm[1].replace(/,/g,''),10));
+      return out;
+    };
+    const grabSameLine = (ln)=>{             // 같은 행에서 가장 큰 숫자
+      const nums = numAll(ln); return nums.length ? Math.max(...nums) : null;
+    };
+    const grabNear = (i)=>{                  // 같은 줄+다음 줄 (폴백용)
+      const nums = numAll((lines[i]||'')+' '+(lines[i+1]||'')); return nums.length ? Math.max(...nums) : null;
+    };
 
-  // 금액 입력 콤마 자동
-  $('fAmount').addEventListener('input', (e)=>{ e.target.value = comma(e.target.value); });
+    // 1순위: '캐디피'(OCR 띄어쓰기 대비) 같은 행 금액
+    const CADDIE = /캐\s*디\s*피/;
+    const caddie = [];
+    lines.forEach(ln=>{ if(CADDIE.test(ln)){ const v=grabSameLine(ln); if(v) caddie.push(v); } });
+    if (caddie.length) return caddie;        // 같은 금액 여러 장이면 중복 보존(합산)
+
+    // 폴백: 합계류 키워드
+    const tiers = [ /(합\s*계|합계액)/, /(받을\s*금액|결제\s*금액|청구\s*금액|총\s*금?액)/ ];
+    for (const kw of tiers){
+      const vals=[]; lines.forEach((ln,i)=>{ if(kw.test(ln)){ const v=grabNear(i); if(v) vals.push(v); } });
+      if (vals.length) return vals;
+    }
+    // 최후 폴백: 콤마 있는 숫자 전부
+    const all=[]; lines.forEach(ln=>{ numAll(ln).forEach(v=>{ if(String(v).length>=4) all.push(v); }); });
+    return all;
+  }
+  function extractVendor(){ return ''; }  // 골프장명은 직접 입력으로 대체 (미사용)
+
+  /* ---- 금액 목록(영수증별) 관리 + 실시간 합산 ---- */
+  function readAmountInputs(){
+    return Array.from(document.querySelectorAll('.amt-input'))
+      .map(el => parseInt(onlyDigits(el.value)||'0', 10));
+  }
+  function recomputeTotal(){
+    const sum = readAmountInputs().reduce((a,b)=>a+b, 0);
+    state.amount = String(sum);
+    $('amountTotal').textContent = comma(String(sum)) + '원';
+  }
+  function renderAmounts(){
+    const box = $('amountList'); box.innerHTML = '';
+    state.amounts.forEach((val, idx)=>{
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-2';
+      row.innerHTML =
+        `<span class="text-[12px] text-navy-600/45 w-5 text-center shrink-0">${idx+1}</span>`
+      + `<div class="relative flex-1">`
+      +   `<input type="text" inputmode="numeric" value="${comma(String(val))}" data-idx="${idx}"`
+      +     ` class="amt-input w-full border border-navy-900/15 rounded-xl px-4 py-2.5 text-[15px] text-right pr-9 focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />`
+      +   `<span class="absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-navy-600/55">원</span>`
+      + `</div>`
+      + `<button type="button" data-idx="${idx}" class="amt-del w-8 h-8 rounded-lg text-navy-600/40 hover:text-red-600 text-xl leading-none">×</button>`;
+      box.appendChild(row);
+    });
+    recomputeTotal();
+  }
+  // 입력 중 콤마 + 합계 갱신 (재렌더 없이 포커스 유지)
+  $('amountList').addEventListener('input', (e)=>{
+    if (e.target.classList.contains('amt-input')){
+      const pos = e.target.value.length;
+      e.target.value = comma(e.target.value);
+      recomputeTotal();
+    }
+  });
+  // 행 삭제
+  $('amountList').addEventListener('click', (e)=>{
+    const btn = e.target.closest('.amt-del'); if (!btn) return;
+    state.amounts = readAmountInputs();
+    state.amounts.splice(parseInt(btn.dataset.idx,10), 1);
+    if (!state.amounts.length) state.amounts = [0];
+    renderAmounts();
+  });
+  // 행 추가
+  $('addAmountBtn').addEventListener('click', ()=>{
+    state.amounts = readAmountInputs();
+    state.amounts.push(0);
+    renderAmounts();
+    const inputs = document.querySelectorAll('.amt-input');
+    inputs[inputs.length-1]?.focus();
+  });
 
   $('toPreviewBtn').addEventListener('click', ()=>{
     state.vendor = $('fVendor').value.trim();
     state.date   = $('fDate').value;
-    state.amount = onlyDigits($('fAmount').value);
+    recomputeTotal();   // state.amount = 합계
     if (!state.photoDataUrl){ toast('영수증을 먼저 촬영해 주세요.'); return; }
     if (!state.vendor){ toast('거래처명을 입력해 주세요.'); return; }
     if (!state.date){ toast('일자를 입력해 주세요.'); return; }
-    if (!state.amount){ toast('금액을 입력해 주세요.'); return; }
+    if (!state.amount || state.amount === '0'){ toast('금액을 입력해 주세요.'); return; }
+    saveVendor(state.vendor);   // 다음 입력을 위해 골프장명 기억
     renderPreview();
     show('previewScreen');
   });
