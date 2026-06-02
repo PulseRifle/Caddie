@@ -116,31 +116,48 @@
     <section id="captureScreen" class="fade-in" hidden>
       <button class="backBtn text-[13px] text-navy-600/70 mb-4">‹ 뒤로</button>
       <h2 class="text-base font-semibold mb-1"><span class="typeLabel"></span> 영수증</h2>
-      <p class="text-[13px] text-navy-600/70 mb-5">영수증을 촬영하면 항목을 자동으로 추출합니다. 값은 직접 수정할 수 있습니다.</p>
+      <p class="text-[13px] text-navy-600/70 mb-5">팀수를 입력하고 영수증을 한 장씩 촬영하면, 각 캐디피 금액을 추출해 합산합니다.</p>
 
-      <!-- 촬영 영역 -->
-      <label id="photoBox" class="block border-2 border-dashed border-navy-900/15 rounded-2xl bg-white p-6 text-center cursor-pointer hover:border-gold-500/50 transition">
-        <input id="photoInput" type="file" accept="image/*" capture="environment" class="hidden" />
-        <div id="photoPlaceholder">
-          <div class="text-3xl mb-2">📷</div>
-          <p class="text-[14px] font-medium">영수증 촬영하기</p>
-          <p class="text-[12px] text-navy-600/55 mt-1">탭하여 카메라 실행</p>
+      <!-- (A) 팀수 입력 -->
+      <div id="teamCountStep">
+        <label class="block text-[12px] font-medium text-navy-700 mb-1.5">팀수</label>
+        <div class="flex items-center gap-3">
+          <button id="teamMinus" type="button" class="w-12 h-12 rounded-xl border border-navy-900/15 text-2xl leading-none active:scale-95 transition">−</button>
+          <input id="teamCount" type="number" min="1" max="30" value="1" inputmode="numeric"
+                 class="flex-1 border border-navy-900/15 rounded-xl px-4 py-3 text-[18px] font-semibold text-center focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
+          <button id="teamPlus" type="button" class="w-12 h-12 rounded-xl border border-navy-900/15 text-2xl leading-none active:scale-95 transition">+</button>
         </div>
-        <img id="photoPreview" class="hidden mx-auto rounded-xl max-h-56 object-contain" alt="영수증 미리보기" />
-      </label>
-      <button id="retakeBtn" class="text-[12px] text-gold-500 mt-2" hidden>다시 촬영</button>
-      <p id="photoSize" class="text-[11px] text-navy-600/55 mt-1" hidden></p>
-
-      <!-- 추출 상태 -->
-      <div id="ocrStatus" class="text-[12px] text-navy-600/70 mt-3 flex items-center gap-2" hidden>
-        <span class="inline-block w-3 h-3 border-2 border-gold-500 border-t-transparent rounded-full animate-spin"></span>
-        항목 추출 중…
+        <p class="text-[12px] text-navy-600/55 mt-2">입력한 팀수만큼 영수증을 한 장씩 촬영합니다.</p>
+        <button id="startCaptureBtn"
+                class="w-full mt-5 bg-navy-900 text-white rounded-xl py-3.5 text-[15px] font-medium active:scale-[.99] transition">
+          촬영 시작
+        </button>
       </div>
 
-      <!-- 추출 항목 (수정 가능) -->
-      <div id="fields" class="mt-5 space-y-4" hidden>
+      <!-- (B) 촬영 진행 -->
+      <div id="captureStep" hidden>
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-[13px] font-medium text-navy-700">촬영 <span id="captProgress">0 / 0</span></span>
+          <span id="ocrStatus" class="text-[12px] text-navy-600/70 flex items-center gap-2" hidden>
+            <span class="inline-block w-3 h-3 border-2 border-gold-500 border-t-transparent rounded-full animate-spin"></span>추출 중…
+          </span>
+        </div>
+        <label id="photoBox" class="block border-2 border-dashed border-navy-900/15 rounded-2xl bg-white p-6 text-center cursor-pointer hover:border-gold-500/50 transition">
+          <input id="photoInput" type="file" accept="image/*" capture="environment" class="hidden" />
+          <div class="text-3xl mb-2">📷</div>
+          <p id="captLabel" class="text-[14px] font-medium">1번째 영수증 촬영</p>
+          <p class="text-[12px] text-navy-600/55 mt-1">탭하여 카메라 실행</p>
+        </label>
+        <p id="captDone" class="text-[12px] text-gold-500 mt-2 text-center" hidden>모든 영수증 촬영 완료</p>
+
+        <!-- 촬영된 영수증 (썸네일 + 금액, 수정 가능) -->
+        <div id="shotList" class="mt-4 space-y-2"></div>
+      </div>
+
+      <!-- (C) 항목 확인 / 발송 -->
+      <div id="fields" class="mt-6 space-y-4" hidden>
         <div>
-          <label class="block text-[12px] font-medium text-navy-700 mb-1.5">골프장명 <span class="text-navy-600/45 font-normal">(직접 입력)</span></label>
+          <label class="block text-[12px] font-medium text-navy-700 mb-1.5">골프장명 <span class="text-navy-600/45 font-normal">(자동 인식 · 수정 가능)</span></label>
           <input id="fVendor" type="text" placeholder="예) ○○컨트리클럽"
                  class="w-full border border-navy-900/15 rounded-xl px-4 py-3 text-[15px] focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
         </div>
@@ -149,16 +166,9 @@
           <input id="fDate" type="date"
                  class="w-full border border-navy-900/15 rounded-xl px-4 py-3 text-[15px] focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
         </div>
-        <div>
-          <div class="flex items-center justify-between mb-1.5">
-            <label class="block text-[12px] font-medium text-navy-700">금액 (영수증별 · 자동 합산)</label>
-            <button id="addAmountBtn" type="button" class="text-[12px] text-gold-500">+ 금액 추가</button>
-          </div>
-          <div id="amountList" class="space-y-2"></div>
-          <div class="flex items-center justify-between mt-3 pt-3 border-t border-navy-900/10">
-            <span class="text-[13px] font-medium text-navy-700">합계</span>
-            <span id="amountTotal" class="text-[16px] font-semibold text-navy-900">0원</span>
-          </div>
+        <div class="flex items-center justify-between pt-1 border-t border-navy-900/10">
+          <span class="text-[13px] font-medium text-navy-700">캐디피 합계 (<span id="shotCount">0</span>팀)</span>
+          <span id="amountTotal" class="text-[16px] font-semibold text-navy-900">0원</span>
         </div>
         <button id="toPreviewBtn"
                 class="w-full bg-navy-900 text-white rounded-xl py-3.5 text-[15px] font-medium active:scale-[.99] transition">
@@ -263,7 +273,8 @@
      ===================================================================== */
   const $ = (id) => document.getElementById(id);
   const screens = ['authScreen','homeScreen','captureScreen','previewScreen'];
-  const state = { emp:'', type:'', photoDataUrl:'', vendor:'', date:'', amount:'', amounts:[] };
+  const state = { emp:'', type:'', photoDataUrl:'', vendor:'', date:'', amount:'',
+                  teamCount:1, receipts:[] };   // receipts: [{ photo, amount }]
 
   function show(id){
     screens.forEach(s => $(s).hidden = (s !== id));
@@ -327,31 +338,143 @@
      (2) 촬영 → 추출
      ===================================================================== */
   function resetCapture(){
-    state.photoDataUrl=''; state.vendor=''; state.date=''; state.amount=''; state.amounts=[];
-    $('photoPreview').classList.add('hidden'); $('photoPlaceholder').classList.remove('hidden');
-    $('retakeBtn').hidden = true; $('fields').hidden = true; $('ocrStatus').hidden = true;
-    $('photoSize').hidden = true;
+    state.photoDataUrl=''; state.vendor=''; state.date=''; state.amount='';
+    state.teamCount=1; state.receipts=[];
+    $('teamCount').value = '1';
+    $('teamCountStep').hidden = false;
+    $('captureStep').hidden = true;
+    $('fields').hidden = true;
+    $('ocrStatus').hidden = true;
+    $('captDone').hidden = true;
+    $('photoBox').style.display = '';
     $('photoInput').value=''; $('fVendor').value=''; $('fDate').value='';
-    $('amountList').innerHTML=''; $('amountTotal').textContent='0원';
+    $('shotList').innerHTML=''; $('amountTotal').textContent='0원'; $('shotCount').textContent='0';
   }
-  $('retakeBtn').addEventListener('click', (e)=>{ e.preventDefault(); $('photoInput').click(); });
 
+  // 팀수 +/- 및 촬영 시작
+  $('teamMinus').addEventListener('click', ()=>{ const el=$('teamCount'); el.value=Math.max(1,(parseInt(el.value)||1)-1); });
+  $('teamPlus').addEventListener('click',  ()=>{ const el=$('teamCount'); el.value=Math.min(30,(parseInt(el.value)||1)+1); });
+  $('startCaptureBtn').addEventListener('click', ()=>{
+    const n = Math.max(1, Math.min(30, parseInt($('teamCount').value)||1));
+    state.teamCount = n; state.receipts = [];
+    $('teamCountStep').hidden = true;
+    $('captureStep').hidden = false;
+    $('captDone').hidden = true;
+    $('photoBox').style.display = '';
+    updateCaptureUI();
+  });
+
+  function updateCaptureUI(){
+    const done = state.receipts.length, total = state.teamCount;
+    $('captProgress').textContent = `${done} / ${total}`;
+    $('captLabel').textContent = `${done+1}번째 영수증 촬영`;
+    const finished = done >= total;
+    $('photoBox').style.display = finished ? 'none' : '';
+    $('captDone').hidden = !finished;
+    $('fields').hidden = (done === 0);          // 1장이라도 찍으면 항목 영역 표시
+    $('shotCount').textContent = String(done);
+  }
+
+  // 한 장 촬영 → 그 사진만 OCR → 캐디피 금액 1건 추출
   $('photoInput').addEventListener('change', async (e)=>{
     const file = e.target.files[0]; if (!file) return;
-    const dataUrl = await compressImage(file);   // 용량 축소(첨부 대비)
-    state.photoDataUrl = dataUrl;
-    $('photoPreview').src = dataUrl;
-    $('photoPreview').classList.remove('hidden');
-    $('photoPlaceholder').classList.add('hidden');
-    $('retakeBtn').hidden = false;
-    // 첨부 용량 안내
-    const kb = Math.round(dataUrlBytes(dataUrl)/1024);
-    const sz = $('photoSize');
-    sz.textContent = `첨부 용량 약 ${kb}KB` + (kb > 500 ? ' · 한도 초과 가능' : '');
-    sz.classList.toggle('text-red-600', kb > 500);
-    sz.hidden = false;
-    await extractReceipt(dataUrl, file);
+    $('photoInput').value = '';                 // 같은 파일 재선택 허용
+    const dataUrl = await compressImage(file);
+    $('ocrStatus').hidden = false;
+    let result = { amounts:[], vendor:'', date:'' };
+    try { result = await ocrImage(dataUrl); }
+    catch(err){ console.error(err); toast('자동 추출 실패 — 금액을 직접 입력해 주세요.'); }
+    finally { $('ocrStatus').hidden = true; }
+
+    // 첫 장에서 골프장명·일자 채움(비어 있을 때만)
+    if (state.receipts.length === 0){
+      if (!$('fVendor').value && result.vendor) $('fVendor').value = result.vendor;
+      $('fDate').value = result.date || new Date().toISOString().slice(0,10);
+    }
+    const amount = result.amounts.length ? result.amounts[0] : 0;   // 영수증 1장 = 금액 1건
+    state.receipts.push({ photo: dataUrl, amount });
+    renderShots();
+    updateCaptureUI();
+    toast(amount ? `${state.receipts.length}번째 캐디피 ${comma(String(amount))}원`
+                 : `${state.receipts.length}번째 — 금액 미인식, 직접 입력`);
   });
+
+  // 촬영된 영수증 카드(썸네일 + 금액 + 삭제) 렌더
+  function renderShots(){
+    const box = $('shotList'); box.innerHTML='';
+    state.receipts.forEach((rc, idx)=>{
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-3 bg-white rounded-xl card-shadow p-2.5';
+      row.innerHTML =
+        `<img src="${rc.photo}" class="w-12 h-12 rounded-lg object-cover shrink-0" alt="영수증 ${idx+1}" />`
+      + `<span class="text-[12px] text-navy-600/55 shrink-0">${idx+1}팀</span>`
+      + `<div class="relative flex-1">`
+      +   `<input type="text" inputmode="numeric" value="${comma(String(rc.amount))}" data-idx="${idx}"`
+      +     ` class="amt-input w-full border border-navy-900/15 rounded-lg px-3 py-2 text-[15px] text-right pr-8 focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />`
+      +   `<span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[12px] text-navy-600/55">원</span>`
+      + `</div>`
+      + `<button type="button" data-idx="${idx}" class="amt-del w-8 h-8 rounded-lg text-navy-600/40 hover:text-red-600 text-xl leading-none shrink-0">×</button>`;
+      box.appendChild(row);
+    });
+    recomputeTotal();
+  }
+
+  // 단일 이미지 OCR → { amounts, vendor, date }
+  async function ocrImage(dataUrl){
+    if (!CONFIG.GOOGLE_VISION_KEY){
+      return { amounts:[], vendor:'', date:new Date().toISOString().slice(0,10) };
+    }
+    const base64 = dataUrl.split(',')[1];
+    const res = await fetch(
+      'https://vision.googleapis.com/v1/images:annotate?key=' + CONFIG.GOOGLE_VISION_KEY, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          requests: [{
+            image: { content: base64 },
+            features: [{ type:'TEXT_DETECTION' }, { type:'LOGO_DETECTION' }],
+            imageContext: { languageHints: ['ko'] }
+          }]
+        })
+      });
+    const data = await res.json();
+    if (data.error || data.responses?.[0]?.error){
+      throw new Error((data.error || data.responses[0].error).message || 'Vision API 오류');
+    }
+    const r = data.responses?.[0] || {};
+    const text = r.fullTextAnnotation?.text || r.textAnnotations?.[0]?.description || '';
+    const parsed = parseReceipt(text);
+    return { amounts: parsed.amounts, vendor: extractVendorTopText(r), date: parsed.date };
+  }
+
+  // 촬영한 영수증들을 세로로 이어붙여 한 장으로 합성(원본 보존) → 첨부용
+  function combineReceipts(){
+    return new Promise(async (resolve)=>{
+      const photos = state.receipts.map(r=>r.photo);
+      if (!photos.length) return resolve('');
+      if (photos.length === 1) return resolve(photos[0]);
+      // 각 이미지 로드
+      const imgs = await Promise.all(photos.map(src=>new Promise(res=>{
+        const im = new Image(); im.onload=()=>res(im); im.src=src;
+      })));
+      const W = Math.max(...imgs.map(im=>im.width));     // 공통 너비
+      const gap = 16;
+      const scaledH = imgs.map(im=> Math.round(im.height * (W/im.width)));
+      const H = scaledH.reduce((a,b)=>a+b,0) + gap*(imgs.length-1);
+      const c = document.createElement('canvas'); c.width=W; c.height=H;
+      const ctx = c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+      let y=0; imgs.forEach((im,i)=>{ const h=scaledH[i]; ctx.drawImage(im,0,y,W,h); y+=h+gap; });
+      // 첨부 한도(460KB) 맞춰 적응형 압축
+      const full = c.toDataURL('image/jpeg', 0.85);
+      const tmp = new Image();
+      tmp.onload = ()=>{
+        const steps=[[2000,0.8],[1800,0.7],[1600,0.6],[1400,0.5],[1200,0.45],[1000,0.4],[900,0.4]];
+        let out = full;
+        for (const [dim,q] of steps){ out = renderJpeg(tmp, dim, q); if (dataUrlBytes(out) <= ATTACH_TARGET) break; }
+        resolve(out);
+      };
+      tmp.src = full;
+    });
+  }
 
   // 적응형 압축: EmailJS Personal 플랜 첨부 한도(500KB) 아래로 들어올 때까지
   // 품질→해상도 순으로 단계적으로 줄인다. 목표는 여유를 둔 460KB.
@@ -386,53 +509,6 @@
       };
       img.src = URL.createObjectURL(file);
     });
-  }
-
-  // 추출: Google Vision API(TEXT_DETECTION) 호출 → 한글 영수증 파서
-  async function extractReceipt(dataUrl){
-    $('fields').hidden = true;
-    if (!CONFIG.GOOGLE_VISION_KEY){
-      $('fDate').value = new Date().toISOString().slice(0,10);
-      state.amounts = [0]; renderAmounts();
-      $('fields').hidden = false; return;
-    }
-    $('ocrStatus').hidden = false;
-    try {
-      const base64 = dataUrl.split(',')[1];   // data: 접두어 제거
-      const res = await fetch(
-        'https://vision.googleapis.com/v1/images:annotate?key=' + CONFIG.GOOGLE_VISION_KEY, {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            requests: [{
-              image: { content: base64 },
-              features: [{ type:'TEXT_DETECTION' }, { type:'LOGO_DETECTION' }],
-              imageContext: { languageHints: ['ko'] }
-            }]
-          })
-        });
-      const data = await res.json();
-      if (data.error || data.responses?.[0]?.error){
-        throw new Error((data.error || data.responses[0].error).message || 'Vision API 오류');
-      }
-      const r = data.responses?.[0] || {};
-      const text = r.fullTextAnnotation?.text
-                 || r.textAnnotations?.[0]?.description || '';
-      const parsed = parseReceipt(text);
-      $('fVendor').value = extractVendorTopText(r);   // 상단 그림 아래 첫 글자 줄(없으면 공란)
-      $('fDate').value   = parsed.date || new Date().toISOString().slice(0,10);
-      state.amounts = parsed.amounts.length ? parsed.amounts.slice() : [0];
-      renderAmounts();
-      if (!parsed.amounts.length) toast('금액을 인식하지 못했습니다. 직접 입력해 주세요.');
-      else toast(`캐디피 ${parsed.amounts.length}건 감지 — 확인 후 발송하세요.`);
-    } catch(err){
-      console.error(err);
-      toast('자동 추출 실패 — 직접 입력해 주세요.');
-      $('fDate').value = new Date().toISOString().slice(0,10);
-      state.amounts = [0]; renderAmounts();
-    } finally {
-      $('ocrStatus').hidden = true;
-      $('fields').hidden = false;
-    }
   }
 
   /* ---- 한글 영수증 텍스트 파서 (일반 OCR 결과에서 항목 추출) ----
@@ -526,7 +602,7 @@
     return '';
   }
 
-  /* ---- 금액 목록(영수증별) 관리 + 실시간 합산 ---- */
+  /* ---- 영수증별 금액 합산 (shotList 입력 기준) ---- */
   function readAmountInputs(){
     return Array.from(document.querySelectorAll('.amt-input'))
       .map(el => parseInt(onlyDigits(el.value)||'0', 10));
@@ -536,56 +612,37 @@
     state.amount = String(sum);
     $('amountTotal').textContent = comma(String(sum)) + '원';
   }
-  function renderAmounts(){
-    const box = $('amountList'); box.innerHTML = '';
-    state.amounts.forEach((val, idx)=>{
-      const row = document.createElement('div');
-      row.className = 'flex items-center gap-2';
-      row.innerHTML =
-        `<span class="text-[12px] text-navy-600/45 w-5 text-center shrink-0">${idx+1}</span>`
-      + `<div class="relative flex-1">`
-      +   `<input type="text" inputmode="numeric" value="${comma(String(val))}" data-idx="${idx}"`
-      +     ` class="amt-input w-full border border-navy-900/15 rounded-xl px-4 py-2.5 text-[15px] text-right pr-9 focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />`
-      +   `<span class="absolute right-3 top-1/2 -translate-y-1/2 text-[13px] text-navy-600/55">원</span>`
-      + `</div>`
-      + `<button type="button" data-idx="${idx}" class="amt-del w-8 h-8 rounded-lg text-navy-600/40 hover:text-red-600 text-xl leading-none">×</button>`;
-      box.appendChild(row);
-    });
-    recomputeTotal();
-  }
   // 입력 중 콤마 + 합계 갱신 (재렌더 없이 포커스 유지)
-  $('amountList').addEventListener('input', (e)=>{
+  $('shotList').addEventListener('input', (e)=>{
     if (e.target.classList.contains('amt-input')){
-      const pos = e.target.value.length;
       e.target.value = comma(e.target.value);
+      const idx = parseInt(e.target.dataset.idx,10);
+      if (state.receipts[idx]) state.receipts[idx].amount = parseInt(onlyDigits(e.target.value)||'0',10);
       recomputeTotal();
     }
   });
-  // 행 삭제
-  $('amountList').addEventListener('click', (e)=>{
+  // 영수증 삭제 (해당 사진+금액 제거)
+  $('shotList').addEventListener('click', (e)=>{
     const btn = e.target.closest('.amt-del'); if (!btn) return;
-    state.amounts = readAmountInputs();
-    state.amounts.splice(parseInt(btn.dataset.idx,10), 1);
-    if (!state.amounts.length) state.amounts = [0];
-    renderAmounts();
-  });
-  // 행 추가
-  $('addAmountBtn').addEventListener('click', ()=>{
-    state.amounts = readAmountInputs();
-    state.amounts.push(0);
-    renderAmounts();
-    const inputs = document.querySelectorAll('.amt-input');
-    inputs[inputs.length-1]?.focus();
+    state.receipts.splice(parseInt(btn.dataset.idx,10), 1);
+    renderShots();
+    updateCaptureUI();   // 미촬영 상태로 돌아가면 촬영 버튼 다시 표시
   });
 
-  $('toPreviewBtn').addEventListener('click', ()=>{
+  $('toPreviewBtn').addEventListener('click', async ()=>{
     state.vendor = $('fVendor').value.trim();
     state.date   = $('fDate').value;
     recomputeTotal();   // state.amount = 합계
-    if (!state.photoDataUrl){ toast('영수증을 먼저 촬영해 주세요.'); return; }
-    if (!state.vendor){ toast('거래처명을 입력해 주세요.'); return; }
+    if (!state.receipts.length){ toast('영수증을 먼저 촬영해 주세요.'); return; }
+    if (!state.vendor){ toast('골프장명을 입력해 주세요.'); return; }
     if (!state.date){ toast('일자를 입력해 주세요.'); return; }
     if (!state.amount || state.amount === '0'){ toast('금액을 입력해 주세요.'); return; }
+    if (state.receipts.length < state.teamCount &&
+        !confirm(`팀수(${state.teamCount})보다 적은 ${state.receipts.length}장이 촬영되었습니다. 이대로 진행할까요?`)) return;
+    const btn = $('toPreviewBtn'); btn.disabled = true; btn.textContent = '영수증 합치는 중…';
+    try {
+      state.photoDataUrl = await combineReceipts();   // 여러 장 → 한 장으로 합성(첨부)
+    } finally { btn.disabled = false; btn.textContent = '이메일 미리보기'; }
     renderPreview();
     show('previewScreen');
   });
@@ -605,6 +662,8 @@
     $('tdDate').textContent = state.date;
     $('tdVendor').textContent = state.vendor;
     $('tdAmount').textContent = comma(state.amount)+'원';
+    const kb = state.photoDataUrl ? Math.round(dataUrlBytes(state.photoDataUrl)/1024) : 0;
+    $('pvAttach').textContent = `첨부: 영수증 ${state.receipts.length}장 합본 (약 ${kb}KB)`;
   }
 
   /* =====================================================================
