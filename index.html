@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>경비 영수증 제출</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Pretendard (한글 정제형 웹폰트) -->
+  <link rel="stylesheet" as="style" crossorigin
+        href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+  <!-- EmailJS SDK (선택: 백엔드 없이 발송할 때만 사용) -->
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Pretendard', 'system-ui', 'sans-serif'] },
+          colors: {
+            navy: { 900:'#0c1a33', 800:'#13254a', 700:'#1c335f', 600:'#26477d' },
+            gold: { 500:'#b08d4f', 400:'#c6a667' },
+            paper:'#f5f4f0'
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    :root { --ease: cubic-bezier(.22,.61,.36,1); }
+    body { background:#f5f4f0; -webkit-tap-highlight-color: transparent; }
+    .fade-in { animation: fade .45s var(--ease) both; }
+    @keyframes fade { from { opacity:0; transform: translateY(10px);} to {opacity:1; transform:none;} }
+    .pop { animation: pop .35s var(--ease) both; }
+    @keyframes pop { 0%{opacity:0; transform:scale(.92);} 100%{opacity:1; transform:scale(1);} }
+    /* 상단 브랜드 헤어라인 */
+    .hairline { background: linear-gradient(90deg, transparent, #b08d4f 30%, #b08d4f 70%, transparent); height:1px; }
+    .card-shadow { box-shadow: 0 1px 2px rgba(12,26,51,.04), 0 12px 28px -12px rgba(12,26,51,.18); }
+    input:focus, select:focus { outline:none; }
+    /* 숨김 */
+    [hidden]{ display:none !important; }
+  </style>
+</head>
+<body class="font-sans text-navy-900 min-h-screen flex flex-col">
+
+  <!-- ===================== 상단 헤더 ===================== -->
+  <header class="bg-navy-900 text-white">
+    <div class="max-w-md mx-auto px-5 pt-5 pb-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="text-[11px] tracking-[0.25em] text-gold-400 font-medium">EXPENSE</p>
+          <h1 class="text-lg font-semibold tracking-tight">경비 영수증 제출</h1>
+        </div>
+        <button id="logoutBtn" class="text-[11px] text-white/50 hover:text-white/90 transition" hidden>
+          사번 변경
+        </button>
+      </div>
+    </div>
+    <div class="hairline"></div>
+  </header>
+
+  <main class="flex-1 w-full max-w-md mx-auto px-5 py-6">
+
+    <!-- ============ (0) 사번 인증 게이트 ============ -->
+    <section id="authScreen" class="fade-in" hidden>
+      <div class="bg-white rounded-2xl card-shadow p-7 mt-6">
+        <h2 class="text-base font-semibold mb-1">최초 1회 사번 확인</h2>
+        <p class="text-[13px] text-navy-600/70 leading-relaxed mb-5">
+          이 기기에서 처음 접속하셨습니다. 사번을 입력하시면 이후에는
+          자동으로 인식됩니다.
+        </p>
+        <label class="block text-[12px] font-medium text-navy-700 mb-1.5">사번</label>
+        <input id="empInput" type="text" inputmode="numeric" placeholder="예) 20231234"
+               class="w-full border border-navy-900/15 rounded-xl px-4 py-3 text-[15px] focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
+        <p id="empError" class="text-[12px] text-red-600 mt-2" hidden>사번을 입력해 주세요.</p>
+        <button id="empSubmit"
+                class="w-full mt-5 bg-navy-900 text-white rounded-xl py-3.5 text-[15px] font-medium active:scale-[.99] transition">
+          확인
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ (1) 영수증 종류 선택 ============ -->
+    <section id="homeScreen" class="fade-in" hidden>
+      <div class="flex items-center justify-between mb-3">
+        <p class="text-[13px] text-navy-600/70">
+          <span id="empBadge" class="font-semibold text-navy-900"></span> 님
+        </p>
+      </div>
+      <p class="text-[12px] font-medium text-navy-700 mb-2.5">영수증 종류</p>
+      <div class="space-y-3">
+        <!-- 캐디피 영수증 (메인) -->
+        <button data-type="캐디피" class="receipt-type w-full bg-navy-900 text-white rounded-2xl card-shadow p-5 flex items-center gap-4 active:scale-[.99] transition text-left">
+          <span class="w-11 h-11 rounded-full bg-gold-500/20 flex items-center justify-center text-gold-400 text-xl">⛳</span>
+          <span class="flex-1">
+            <span class="block font-semibold">캐디피 영수증</span>
+            <span class="block text-[12px] text-white/55">골프장 캐디피 정산용</span>
+          </span>
+          <span class="text-white/40 text-xl">›</span>
+        </button>
+        <!-- 확장 자리(예시) -->
+        <button data-type="기타경비" class="receipt-type w-full bg-white rounded-2xl card-shadow p-5 flex items-center gap-4 active:scale-[.99] transition text-left opacity-90">
+          <span class="w-11 h-11 rounded-full bg-navy-900/5 flex items-center justify-center text-navy-700 text-xl">🧾</span>
+          <span class="flex-1">
+            <span class="block font-semibold text-navy-900">기타 경비 영수증</span>
+            <span class="block text-[12px] text-navy-600/55">필요 시 확장 가능</span>
+          </span>
+          <span class="text-navy-900/25 text-xl">›</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ (2) 촬영 / 추출 / 수정 ============ -->
+    <section id="captureScreen" class="fade-in" hidden>
+      <button class="backBtn text-[13px] text-navy-600/70 mb-4">‹ 뒤로</button>
+      <h2 class="text-base font-semibold mb-1"><span class="typeLabel"></span> 영수증</h2>
+      <p class="text-[13px] text-navy-600/70 mb-5">영수증을 촬영하면 항목을 자동으로 추출합니다. 값은 직접 수정할 수 있습니다.</p>
+
+      <!-- 촬영 영역 -->
+      <label id="photoBox" class="block border-2 border-dashed border-navy-900/15 rounded-2xl bg-white p-6 text-center cursor-pointer hover:border-gold-500/50 transition">
+        <input id="photoInput" type="file" accept="image/*" capture="environment" class="hidden" />
+        <div id="photoPlaceholder">
+          <div class="text-3xl mb-2">📷</div>
+          <p class="text-[14px] font-medium">영수증 촬영하기</p>
+          <p class="text-[12px] text-navy-600/55 mt-1">탭하여 카메라 실행</p>
+        </div>
+        <img id="photoPreview" class="hidden mx-auto rounded-xl max-h-56 object-contain" alt="영수증 미리보기" />
+      </label>
+      <button id="retakeBtn" class="text-[12px] text-gold-500 mt-2" hidden>다시 촬영</button>
+      <p id="photoSize" class="text-[11px] text-navy-600/55 mt-1" hidden></p>
+
+      <!-- 추출 상태 -->
+      <div id="ocrStatus" class="text-[12px] text-navy-600/70 mt-3 flex items-center gap-2" hidden>
+        <span class="inline-block w-3 h-3 border-2 border-gold-500 border-t-transparent rounded-full animate-spin"></span>
+        항목 추출 중…
+      </div>
+
+      <!-- 추출 항목 (수정 가능) -->
+      <div id="fields" class="mt-5 space-y-4" hidden>
+        <div>
+          <label class="block text-[12px] font-medium text-navy-700 mb-1.5">거래처명</label>
+          <input id="fVendor" type="text" placeholder="예) ○○컨트리클럽"
+                 class="w-full border border-navy-900/15 rounded-xl px-4 py-3 text-[15px] focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
+        </div>
+        <div>
+          <label class="block text-[12px] font-medium text-navy-700 mb-1.5">일자</label>
+          <input id="fDate" type="date"
+                 class="w-full border border-navy-900/15 rounded-xl px-4 py-3 text-[15px] focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
+        </div>
+        <div>
+          <label class="block text-[12px] font-medium text-navy-700 mb-1.5">금액 (합계액)</label>
+          <div class="relative">
+            <input id="fAmount" type="text" inputmode="numeric" placeholder="0"
+                   class="w-full border border-navy-900/15 rounded-xl px-4 py-3 text-[15px] text-right pr-10 focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
+            <span class="absolute right-4 top-1/2 -translate-y-1/2 text-[14px] text-navy-600/60">원</span>
+          </div>
+        </div>
+        <button id="toPreviewBtn"
+                class="w-full bg-navy-900 text-white rounded-xl py-3.5 text-[15px] font-medium active:scale-[.99] transition">
+          이메일 미리보기
+        </button>
+      </div>
+    </section>
+
+    <!-- ============ (3-4) 이메일 프리뷰 ============ -->
+    <section id="previewScreen" class="fade-in" hidden>
+      <button class="backBtn text-[13px] text-navy-600/70 mb-4">‹ 뒤로</button>
+      <h2 class="text-base font-semibold mb-1">발송 내용 확인</h2>
+      <p class="text-[13px] text-navy-600/70 mb-5">아래 내용으로 발송됩니다. 확인 후 발송해 주세요.</p>
+
+      <div class="bg-white rounded-2xl card-shadow overflow-hidden">
+        <!-- 수신/제목 -->
+        <div class="px-5 py-4 border-b border-navy-900/8">
+          <div class="flex gap-3 py-1">
+            <span class="text-[12px] text-navy-600/55 w-12 shrink-0">받는이</span>
+            <span id="pvTo" class="text-[13px] font-medium break-all"></span>
+          </div>
+          <div class="flex gap-3 py-1">
+            <span class="text-[12px] text-navy-600/55 w-12 shrink-0">제목</span>
+            <span id="pvSubject" class="text-[13px] font-medium break-all"></span>
+          </div>
+        </div>
+        <!-- 본문 -->
+        <div class="px-5 py-4 text-[13px] leading-relaxed">
+          <p class="mb-1">ㅇ 이메일 주소: <span id="pvBodyTo" class="text-navy-700"></span></p>
+          <p class="mb-2">ㅇ 내용</p>
+          <table class="w-full border-collapse text-center text-[12.5px]">
+            <thead>
+              <tr class="bg-paper">
+                <th class="border border-navy-900/12 py-2 font-medium">사 번</th>
+                <th class="border border-navy-900/12 py-2 font-medium">일 자</th>
+                <th class="border border-navy-900/12 py-2 font-medium">거래처명</th>
+                <th class="border border-navy-900/12 py-2 font-medium">금 액</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td id="tdEmp"    class="border border-navy-900/12 py-2.5"></td>
+                <td id="tdDate"   class="border border-navy-900/12 py-2.5"></td>
+                <td id="tdVendor" class="border border-navy-900/12 py-2.5"></td>
+                <td id="tdAmount" class="border border-navy-900/12 py-2.5 text-right pr-2"></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- 첨부 -->
+        <div class="px-5 py-3 border-t border-navy-900/8 flex items-center gap-2 text-[12px] text-navy-600/70">
+          📎 <span id="pvAttach">첨부: 영수증 사진</span>
+        </div>
+      </div>
+
+      <button id="sendBtn"
+              class="w-full mt-6 bg-gold-500 text-white rounded-xl py-3.5 text-[15px] font-semibold active:scale-[.99] transition disabled:opacity-50">
+        발송하기
+      </button>
+    </section>
+  </main>
+
+  <footer class="max-w-md mx-auto w-full px-5 py-4 text-center">
+    <p class="text-[11px] text-navy-600/40">사내 경비 정산 시스템 · 총무팀</p>
+  </footer>
+
+  <!-- ============ (5) 완료 팝업 ============ -->
+  <div id="doneModal" class="fixed inset-0 bg-navy-900/45 backdrop-blur-sm flex items-center justify-center px-8 z-50" hidden>
+    <div class="pop bg-white rounded-2xl card-shadow p-7 w-full max-w-xs text-center">
+      <div class="w-14 h-14 rounded-full bg-gold-500/12 mx-auto flex items-center justify-center mb-4">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#b08d4f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      </div>
+      <h3 class="text-base font-semibold mb-1">발송 완료</h3>
+      <p class="text-[13px] text-navy-600/70 leading-relaxed">영수증이 정상적으로 발송되었습니다.</p>
+      <button id="doneBtn" class="w-full mt-5 bg-navy-900 text-white rounded-xl py-3 text-[14px] font-medium active:scale-[.99] transition">확인</button>
+    </div>
+  </div>
+
+  <!-- 토스트 -->
+  <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-[13px] px-4 py-2.5 rounded-full z-50 transition-opacity" hidden></div>
+
+  <script>
+  /* =====================================================================
+     ⚙️  설정 (CONFIG) — 운영 시 이 부분만 채우면 됩니다.
+     ===================================================================== */
+  const CONFIG = {
+    // (필수) 영수증을 받을 이메일 주소
+    RECIPIENT_EMAIL: 'sjshin@koreanre.co.kr',  // 추후 변경 가능
+
+    // (선택 A) EmailJS로 백엔드 없이 발송 — 발급받은 키 적용됨
+    EMAILJS: { PUBLIC_KEY: 'j6xxrPJerViPiWtig', SERVICE_ID: 'service_h77ckej', TEMPLATE_ID: 'template_4xhau5k' },
+
+    // (선택 B) 자체 백엔드로 발송할 경우의 엔드포인트 (예: '/api/send')
+    SEND_ENDPOINT: '',
+
+    // Google Cloud Vision API 키 (일반 TEXT_DETECTION). 콘솔에서 리퍼러·할당량 제한 필수.
+    GOOGLE_VISION_KEY: 'AIzaSyBnVV3zq7gSBUmUhrPE2hfGbA2PZbilyjw'
+  };
+
+  /* =====================================================================
+     상태 & 유틸
+     ===================================================================== */
+  const $ = (id) => document.getElementById(id);
+  const screens = ['authScreen','homeScreen','captureScreen','previewScreen'];
+  const state = { emp:'', type:'', photoDataUrl:'', vendor:'', date:'', amount:'' };
+
+  function show(id){
+    screens.forEach(s => $(s).hidden = (s !== id));
+    $(id).classList.remove('fade-in'); void $(id).offsetWidth; $(id).classList.add('fade-in');
+    window.scrollTo(0,0);
+  }
+  function toast(msg){
+    const t = $('toast'); t.textContent = msg; t.hidden = false; t.style.opacity = '1';
+    clearTimeout(t._t); t._t = setTimeout(()=>{ t.style.opacity='0'; setTimeout(()=>t.hidden=true,300); }, 2200);
+  }
+  const onlyDigits = (v) => (v||'').replace(/[^\d]/g,'');
+  const comma = (v) => onlyDigits(v).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  /* =====================================================================
+     사번 인증 (기기 단위 기억 — IP 매핑은 백엔드 필요, 아래 설명 참고)
+     ===================================================================== */
+  function getSavedEmp(){ try { return localStorage.getItem('emp_no') || ''; } catch(e){ return ''; } }
+  function saveEmp(v){ try { localStorage.setItem('emp_no', v); } catch(e){} }
+  function clearEmp(){ try { localStorage.removeItem('emp_no'); } catch(e){} }
+
+  function boot(){
+    const saved = getSavedEmp();
+    if (saved){ state.emp = saved; enterApp(); }
+    else { show('authScreen'); }
+  }
+  function enterApp(){
+    $('empBadge').textContent = state.emp;
+    $('logoutBtn').hidden = false;
+    show('homeScreen');
+  }
+
+  $('empSubmit').addEventListener('click', ()=>{
+    const v = onlyDigits($('empInput').value.trim()) || $('empInput').value.trim();
+    if (!v){ $('empError').hidden = false; return; }
+    $('empError').hidden = true;
+    state.emp = v; saveEmp(v); enterApp();
+  });
+  $('logoutBtn').addEventListener('click', ()=>{
+    if (confirm('사번을 변경하시겠습니까? 이 기기의 저장된 사번이 초기화됩니다.')){
+      clearEmp(); state.emp=''; $('empInput').value=''; $('logoutBtn').hidden=true; show('authScreen');
+    }
+  });
+
+  /* =====================================================================
+     (1) 영수증 종류 선택
+     ===================================================================== */
+  document.querySelectorAll('.receipt-type').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      state.type = btn.dataset.type;
+      document.querySelectorAll('.typeLabel').forEach(el=>el.textContent = state.type);
+      resetCapture();
+      show('captureScreen');
+    });
+  });
+  document.querySelectorAll('.backBtn').forEach(b=> b.addEventListener('click', ()=>{
+    if ($('previewScreen').hidden === false) show('captureScreen');
+    else show('homeScreen');
+  }));
+
+  /* =====================================================================
+     (2) 촬영 → 추출
+     ===================================================================== */
+  function resetCapture(){
+    state.photoDataUrl=''; state.vendor=''; state.date=''; state.amount='';
+    $('photoPreview').classList.add('hidden'); $('photoPlaceholder').classList.remove('hidden');
+    $('retakeBtn').hidden = true; $('fields').hidden = true; $('ocrStatus').hidden = true;
+    $('photoInput').value=''; $('fVendor').value=''; $('fDate').value=''; $('fAmount').value='';
+  }
+  $('retakeBtn').addEventListener('click', (e)=>{ e.preventDefault(); $('photoInput').click(); });
+
+  $('photoInput').addEventListener('change', async (e)=>{
+    const file = e.target.files[0]; if (!file) return;
+    const dataUrl = await compressImage(file);   // 용량 축소(첨부 대비)
+    state.photoDataUrl = dataUrl;
+    $('photoPreview').src = dataUrl;
+    $('photoPreview').classList.remove('hidden');
+    $('photoPlaceholder').classList.add('hidden');
+    $('retakeBtn').hidden = false;
+    // 첨부 용량 안내
+    const kb = Math.round(dataUrlBytes(dataUrl)/1024);
+    const sz = $('photoSize');
+    sz.textContent = `첨부 용량 약 ${kb}KB` + (kb > 500 ? ' · 한도 초과 가능' : '');
+    sz.classList.toggle('text-red-600', kb > 500);
+    sz.hidden = false;
+    await extractReceipt(dataUrl, file);
+  });
+
+  // 적응형 압축: EmailJS Personal 플랜 첨부 한도(500KB) 아래로 들어올 때까지
+  // 품질→해상도 순으로 단계적으로 줄인다. 목표는 여유를 둔 460KB.
+  const ATTACH_TARGET = 460 * 1024;   // 바이트
+  function dataUrlBytes(dataUrl){      // base64 → 실제 디코드 용량(첨부 크기 기준)
+    const b64 = dataUrl.split(',')[1] || '';
+    const pad = (b64.endsWith('==')?2:(b64.endsWith('=')?1:0));
+    return Math.floor(b64.length * 3 / 4) - pad;
+  }
+  function renderJpeg(img, maxDim, quality){
+    let {width:w, height:h} = img;
+    if (Math.max(w,h) > maxDim){ const r = maxDim/Math.max(w,h); w=Math.round(w*r); h=Math.round(h*r); }
+    const c = document.createElement('canvas'); c.width=w; c.height=h;
+    c.getContext('2d').drawImage(img,0,0,w,h);
+    return c.toDataURL('image/jpeg', quality);
+  }
+  function compressImage(file){
+    return new Promise((resolve)=>{
+      const img = new Image();
+      img.onload = ()=>{
+        // 시도할 (긴변, 품질) 조합 — 점점 더 강하게 압축
+        const steps = [
+          [1600,0.8],[1600,0.65],[1400,0.6],[1200,0.55],
+          [1100,0.5],[1000,0.45],[900,0.4],[800,0.4],[700,0.4]
+        ];
+        let out = renderJpeg(img, steps[0][0], steps[0][1]);
+        for (const [dim,q] of steps){
+          out = renderJpeg(img, dim, q);
+          if (dataUrlBytes(out) <= ATTACH_TARGET) break;
+        }
+        resolve(out);
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  // 추출: Google Vision API(TEXT_DETECTION) 호출 → 한글 영수증 파서
+  async function extractReceipt(dataUrl){
+    $('fields').hidden = true;
+    if (!CONFIG.GOOGLE_VISION_KEY){
+      $('fDate').value = new Date().toISOString().slice(0,10);
+      $('fields').hidden = false; return;
+    }
+    $('ocrStatus').hidden = false;
+    try {
+      const base64 = dataUrl.split(',')[1];   // data: 접두어 제거
+      const res = await fetch(
+        'https://vision.googleapis.com/v1/images:annotate?key=' + CONFIG.GOOGLE_VISION_KEY, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            requests: [{
+              image: { content: base64 },
+              features: [{ type:'TEXT_DETECTION' }],
+              imageContext: { languageHints: ['ko'] }
+            }]
+          })
+        });
+      const data = await res.json();
+      if (data.error || data.responses?.[0]?.error){
+        throw new Error((data.error || data.responses[0].error).message || 'Vision API 오류');
+      }
+      const r = data.responses?.[0] || {};
+      const text = r.fullTextAnnotation?.text
+                 || r.textAnnotations?.[0]?.description || '';
+      const parsed = parseReceipt(text);
+      $('fVendor').value = parsed.vendor;
+      $('fDate').value   = parsed.date || new Date().toISOString().slice(0,10);
+      $('fAmount').value = comma(parsed.amount);
+      if (!parsed.vendor || !parsed.amount) toast('일부 항목은 확인 후 직접 수정해 주세요.');
+    } catch(err){
+      console.error(err);
+      toast('자동 추출 실패 — 직접 입력해 주세요.');
+      $('fDate').value = new Date().toISOString().slice(0,10);
+    } finally {
+      $('ocrStatus').hidden = true;
+      $('fields').hidden = false;
+    }
+  }
+
+  /* ---- 한글 영수증 텍스트 파서 (일반 OCR 결과에서 항목 추출) ----
+     일반 Vision API는 구조 없이 글자만 주므로 규칙 기반으로 추정한다.
+     ※ 100% 정확하지 않으며 사용자가 화면에서 확인·수정하는 것을 전제로 한다.
+     ※ 캐디피 영수증 샘플을 받으면 키워드/패턴을 더 정밀하게 조정 가능. */
+  function parseReceipt(text){
+    const lines = text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+    return {
+      date:   extractDate(text),
+      amount: extractAmount(lines),
+      vendor: extractVendor(lines)
+    };
+  }
+  function extractDate(text){
+    // 2026-06-02 / 2026.06.02 / 2026/06/02 / 2026년 6월 2일 등
+    const m = text.match(/(20\d{2})\s*[.\-\/년]\s*(\d{1,2})\s*[.\-\/월]\s*(\d{1,2})/);
+    if (!m) return '';
+    const pad = n => String(n).padStart(2,'0');
+    return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
+  }
+  function extractAmount(lines){
+    const TOTAL = /(합\s*계|합계액|받을\s*금액|결제\s*금액|청구\s*금액|총\s*금?액|판매금액|받을돈)/;
+    const numRe = /([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,})/g;
+    const cands = [];
+    lines.forEach((ln,i)=>{
+      if (TOTAL.test(ln)){
+        // 같은 줄 + 다음 줄에서 숫자 탐색 (영수증은 라벨과 금액이 줄바꿈되는 경우 많음)
+        const scope = ln + ' ' + (lines[i+1]||'');
+        let mm; while((mm = numRe.exec(scope))) cands.push(parseInt(mm[1].replace(/,/g,''),10));
+      }
+    });
+    if (cands.length) return String(Math.max(...cands));
+    // 합계 키워드를 못 찾으면, 콤마가 있는(=금액일 가능성 높은) 숫자 중 최댓값
+    const all = [];
+    lines.forEach(ln=>{ let mm; const re=/([0-9]{1,3}(?:,[0-9]{3})+)/g;
+      while((mm=re.exec(ln))) all.push(parseInt(mm[1].replace(/,/g,''),10)); });
+    return all.length ? String(Math.max(...all)) : '';
+  }
+  function extractVendor(lines){
+    // 1) '상호'/'상 호'/'가맹점명' 라벨 옆 값
+    for (const ln of lines){
+      const m = ln.match(/(?:상\s*호|가맹점명?|점\s*포\s*명)\s*[:：]?\s*(.+)/);
+      if (m && m[1].trim().length>1) return m[1].trim().replace(/[:：].*$/,'').trim();
+    }
+    // 2) 상단부에서 한글이 포함되고 숫자/금액/날짜가 아닌 첫 줄을 상호로 추정
+    for (const ln of lines.slice(0,6)){
+      if (/[가-힣]/.test(ln) && !/[0-9]{3,}/.test(ln)
+          && !/(영수증|간이|현금|카드|승인|사업자|대표자|주소|전화|tel)/i.test(ln)
+          && ln.length>=2 && ln.length<=25) return ln;
+    }
+    return '';
+  }
+
+  // 금액 입력 콤마 자동
+  $('fAmount').addEventListener('input', (e)=>{ e.target.value = comma(e.target.value); });
+
+  $('toPreviewBtn').addEventListener('click', ()=>{
+    state.vendor = $('fVendor').value.trim();
+    state.date   = $('fDate').value;
+    state.amount = onlyDigits($('fAmount').value);
+    if (!state.photoDataUrl){ toast('영수증을 먼저 촬영해 주세요.'); return; }
+    if (!state.vendor){ toast('거래처명을 입력해 주세요.'); return; }
+    if (!state.date){ toast('일자를 입력해 주세요.'); return; }
+    if (!state.amount){ toast('금액을 입력해 주세요.'); return; }
+    renderPreview();
+    show('previewScreen');
+  });
+
+  /* =====================================================================
+     (3-4) 프리뷰 렌더링
+     ===================================================================== */
+  // EmailJS 템플릿 Subject({{emp_id}}_{{date}}_{{store_name}}_{{amount}})와 동일하게 조립
+  function buildSubject(){
+    return [state.emp, state.date, state.vendor, comma(state.amount)+'원'].join('_');
+  }
+  function renderPreview(){
+    $('pvTo').textContent = CONFIG.RECIPIENT_EMAIL;
+    $('pvBodyTo').textContent = CONFIG.RECIPIENT_EMAIL;
+    $('pvSubject').textContent = buildSubject();
+    $('tdEmp').textContent = state.emp;
+    $('tdDate').textContent = state.date;
+    $('tdVendor').textContent = state.vendor;
+    $('tdAmount').textContent = comma(state.amount)+'원';
+  }
+
+  /* =====================================================================
+     (4) 발송 — EmailJS 또는 자체 백엔드
+     ===================================================================== */
+  $('sendBtn').addEventListener('click', async ()=>{
+    const btn = $('sendBtn'); btn.disabled = true; btn.textContent = '발송 중…';
+    try {
+      if (CONFIG.EMAILJS.PUBLIC_KEY){
+        await sendViaEmailJS();
+      } else if (CONFIG.SEND_ENDPOINT){
+        await sendViaBackend();
+      } else {
+        // 미연동 데모 모드
+        await new Promise(r=>setTimeout(r, 900));
+        console.warn('[데모] 발송 설정이 없어 실제 전송은 생략되었습니다.', {
+          to: CONFIG.RECIPIENT_EMAIL, subject: buildSubject()
+        });
+      }
+      $('doneModal').hidden = false;
+    } catch(err){
+      console.error(err);
+      toast('발송에 실패했습니다. 다시 시도해 주세요.');
+    } finally {
+      btn.disabled = false; btn.textContent = '발송하기';
+    }
+  });
+
+  function bodyText(){
+    return `ㅇ 이메일 주소: ${CONFIG.RECIPIENT_EMAIL}\n`
+         + `ㅇ 내용\n`
+         + `사 번\t일 자\t거래처명\t금 액\n`
+         + `${state.emp}\t${state.date}\t${state.vendor}\t${comma(state.amount)}원`;
+  }
+
+  // EmailJS: 템플릿 변수 {{subject}}, {{message}}, {{to_email}}, 첨부 {{photo}} (Content-ID/base64)
+  async function sendViaEmailJS(){
+    emailjs.init({ publicKey: CONFIG.EMAILJS.PUBLIC_KEY });
+    await emailjs.send(CONFIG.EMAILJS.SERVICE_ID, CONFIG.EMAILJS.TEMPLATE_ID, {
+      // 제목 조립용 — 템플릿 Subject: {{emp_id}}_{{date}}_{{store_name}}_{{amount}}
+      emp_id:     state.emp,
+      date:       state.date,
+      store_name: state.vendor,
+      amount:     comma(state.amount) + '원',
+      // 본문(Content)에서 {{message}} 사용 시
+      message:    bodyText(),
+      to_email:   CONFIG.RECIPIENT_EMAIL,
+      // 첨부 — 템플릿 Attachment 변수명 'photo' (Base64)
+      photo:      state.photoDataUrl
+    });
+  }
+
+  // 자체 백엔드 발송 (권장): 사진 + 데이터 전송 → 서버에서 SMTP 발송
+  async function sendViaBackend(){
+    const res = await fetch(CONFIG.SEND_ENDPOINT, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        to: CONFIG.RECIPIENT_EMAIL,
+        subject: buildSubject(),
+        body: bodyText(),
+        emp: state.emp, date: state.date, vendor: state.vendor, amount: state.amount,
+        type: state.type,
+        image: state.photoDataUrl   // 서버에서 디코드하여 첨부
+      })
+    });
+    if (!res.ok) throw new Error('send failed');
+  }
+
+  /* =====================================================================
+     (5) 완료 → 초기화
+     ===================================================================== */
+  $('doneBtn').addEventListener('click', ()=>{
+    $('doneModal').hidden = true;
+    resetCapture();
+    show('homeScreen');
+  });
+
+  boot();
+  </script>
+</body>
+</html>
