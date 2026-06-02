@@ -418,7 +418,7 @@
       const text = r.fullTextAnnotation?.text
                  || r.textAnnotations?.[0]?.description || '';
       const parsed = parseReceipt(text);
-      $('fVendor').value = extractVendorByLogo(r);   // 로고 옆 첫 줄(없으면 공란)
+      $('fVendor').value = extractVendorTopText(r);   // 상단 그림 아래 첫 글자 줄(없으면 공란)
       $('fDate').value   = parsed.date || new Date().toISOString().slice(0,10);
       state.amounts = parsed.amounts.length ? parsed.amounts.slice() : [0];
       renderAmounts();
@@ -470,42 +470,54 @@
     });
     return amounts;   // 매칭이 없으면 빈 배열 → 사용자가 직접 입력
   }
-  // 골프장명: 로고가 감지되면 로고와 같은 높이대의 '오른쪽 첫 줄' 글자를 가져온다(영어 포함).
-  // 로고가 없거나(대부분의 자체 로고는 미감지) 옆 글자가 없으면 공란.
-  function extractVendorByLogo(r){
-    const logos = r.logoAnnotations || [];
+  // 골프장명: 상단에 그림(로고)이 있다고 추정되면 그 아래 '첫 글자 줄'을 가져온다(영어 포함).
+  //  - 그림 추정: Vision이 로고를 감지했거나, 이미지 맨 위~첫 글자 사이 여백이 충분히 큼.
+  //  - 그림이 없으면(맨 위부터 바로 글자) 공란.
+  function extractVendorTopText(r){
     const words = (r.textAnnotations || []).slice(1);   // [0]은 전체 텍스트라 제외
-    if (!logos.length || !words.length) return '';
-    const lv = logos[0].boundingPoly?.vertices || [];
-    if (!lv.length) return '';
-    const lx = lv.map(p=>p.x||0), ly = lv.map(p=>p.y||0);
-    const logo = { right:Math.max(...lx), top:Math.min(...ly), bottom:Math.max(...ly) };
-    const logoCY = (logo.top + logo.bottom)/2;
-    const logoH  = (logo.bottom - logo.top) || 1;
-
-    // 각 단어의 박스 좌표 정리
+    if (!words.length) return '';
+    // 단어 박스 정리
     const boxes = words.map(w=>{
       const v = w.boundingPoly?.vertices || []; if (!v.length) return null;
       const xs = v.map(p=>p.x||0), ys = v.map(p=>p.y||0);
-      return { text:w.description, left:Math.min(...xs), cx:(Math.min(...xs)+Math.max(...xs))/2,
-               cy:(Math.min(...ys)+Math.max(...ys))/2 };
+      return { text:w.description, left:Math.min(...xs), top:Math.min(...ys),
+               bottom:Math.max(...ys), cy:(Math.min(...ys)+Math.max(...ys))/2 };
     }).filter(Boolean);
+    if (!boxes.length) return '';
 
-    // 로고 오른쪽 + 로고와 세로로 겹치는(±logoH) 단어만
-    const beside = boxes.filter(b => b.cx > logo.right - logoH*0.3 && Math.abs(b.cy - logoCY) <= logoH);
-    if (!beside.length) return '';
-
-    // 가장 위 줄 기준으로 묶어 좌→우 결합
-    beside.sort((a,b)=> a.cy - b.cy || a.left - b.left);
-    const lineCY = beside[0].cy;
-    const line = beside.filter(b => Math.abs(b.cy - lineCY) <= logoH*0.6).sort((a,b)=> a.left - b.left);
-    // 한글은 붙이고 영문 토큰은 공백 유지
-    let name = '';
-    line.forEach((b,i)=>{
-      const sp = (i>0 && /[A-Za-z0-9]$/.test(name) && /^[A-Za-z0-9]/.test(b.text)) ? ' ' : '';
-      name += sp + b.text;
+    // 글자들을 y(줄)로 묶기
+    boxes.sort((a,b)=> a.cy - b.cy);
+    const lines = []; let cur = [];
+    boxes.forEach(b=>{
+      if (!cur.length){ cur=[b]; return; }
+      const refCY = cur.reduce((s,x)=>s+x.cy,0)/cur.length;
+      const lh = (cur[0].bottom - cur[0].top) || 1;
+      if (Math.abs(b.cy - refCY) <= lh*0.7) cur.push(b);
+      else { lines.push(cur); cur=[b]; }
     });
-    return name.trim();
+    if (cur.length) lines.push(cur);
+
+    // 상단에 그림이 있는지 추정
+    const H = r.fullTextAnnotation?.pages?.[0]?.height || Math.max(...boxes.map(b=>b.bottom)) || 1;
+    const firstTop = Math.min(...lines[0].map(b=>b.top));
+    const firstLH  = (lines[0][0].bottom - lines[0][0].top) || 1;
+    const hasLogo  = (r.logoAnnotations || []).length > 0;
+    const graphicAbove = hasLogo || (firstTop > H*0.09 && firstTop > firstLH*1.2);
+    if (!graphicAbove) return '';   // 상단에 그림 없음 → 공란
+
+    // 그림 아래 첫 '글자(한글/영문) 포함' 줄을 골프장명으로
+    const hasLetter = (s)=> /[가-힣A-Za-z]/.test(s);
+    for (const ln of lines){
+      const sorted = ln.slice().sort((a,b)=> a.left - b.left);
+      let name = '';
+      sorted.forEach((b,i)=>{
+        const sp = (i>0 && /[A-Za-z0-9]$/.test(name) && /^[A-Za-z0-9]/.test(b.text)) ? ' ' : '';
+        name += sp + b.text;
+      });
+      name = name.trim();
+      if (hasLetter(name)) return name;   // 숫자/날짜만 있는 줄은 건너뜀
+    }
+    return '';
   }
 
   /* ---- 금액 목록(영수증별) 관리 + 실시간 합산 ---- */
