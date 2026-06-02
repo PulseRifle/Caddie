@@ -284,10 +284,6 @@
   function saveEmp(v){ try { localStorage.setItem('emp_no', v); } catch(e){} }
   function clearEmp(){ try { localStorage.removeItem('emp_no'); } catch(e){} }
 
-  // 골프장명 기억 (같은 골프장 반복 입력 줄이기 — 직접 수정 가능)
-  function getSavedVendor(){ try { return localStorage.getItem('last_vendor') || ''; } catch(e){ return ''; } }
-  function saveVendor(v){ try { if(v) localStorage.setItem('last_vendor', v); } catch(e){} }
-
   function boot(){
     const saved = getSavedEmp();
     if (saved){ state.emp = saved; enterApp(); }
@@ -335,7 +331,7 @@
     $('photoPreview').classList.add('hidden'); $('photoPlaceholder').classList.remove('hidden');
     $('retakeBtn').hidden = true; $('fields').hidden = true; $('ocrStatus').hidden = true;
     $('photoSize').hidden = true;
-    $('photoInput').value=''; $('fVendor').value = getSavedVendor(); $('fDate').value='';
+    $('photoInput').value=''; $('fVendor').value=''; $('fDate').value='';
     $('amountList').innerHTML=''; $('amountTotal').textContent='0원';
   }
   $('retakeBtn').addEventListener('click', (e)=>{ e.preventDefault(); $('photoInput').click(); });
@@ -409,7 +405,7 @@
           body: JSON.stringify({
             requests: [{
               image: { content: base64 },
-              features: [{ type:'TEXT_DETECTION' }],
+              features: [{ type:'TEXT_DETECTION' }, { type:'LOGO_DETECTION' }],
               imageContext: { languageHints: ['ko'] }
             }]
           })
@@ -422,6 +418,7 @@
       const text = r.fullTextAnnotation?.text
                  || r.textAnnotations?.[0]?.description || '';
       const parsed = parseReceipt(text);
+      $('fVendor').value = extractVendorByLogo(r);   // 로고 옆 첫 줄(없으면 공란)
       $('fDate').value   = parsed.date || new Date().toISOString().slice(0,10);
       state.amounts = parsed.amounts.length ? parsed.amounts.slice() : [0];
       renderAmounts();
@@ -456,38 +453,60 @@
     const pad = n => String(n).padStart(2,'0');
     return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
   }
-  // 캐디피 영수증: '캐디피'가 있는 줄의 '같은 행' 금액을 수집해 합산.
-  // (캐디피 표기를 못 찾을 때만 합계류 키워드로 폴백)
+  // 캐디피 영수증: '캐디피'가 있는 같은 행에서, 캐디피 이후 처음 나오는 "…원" 금액만 추출.
+  // 캐디피가 없는 줄/숫자, 그리고 '원'이 안 붙은 숫자는 모두 무시한다(과다 추출 방지).
   function extractAmounts(lines){
-    const numAll = (s)=>{                    // 문자열에서 금액 후보 모두
-      const re=/([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,})/g; const out=[]; let mm;
-      while((mm=re.exec(s))) out.push(parseInt(mm[1].replace(/,/g,''),10));
-      return out;
-    };
-    const grabSameLine = (ln)=>{             // 같은 행에서 가장 큰 숫자
-      const nums = numAll(ln); return nums.length ? Math.max(...nums) : null;
-    };
-    const grabNear = (i)=>{                  // 같은 줄+다음 줄 (폴백용)
-      const nums = numAll((lines[i]||'')+' '+(lines[i+1]||'')); return nums.length ? Math.max(...nums) : null;
-    };
-
-    // 1순위: '캐디피'(OCR 띄어쓰기 대비) 같은 행 금액
-    const CADDIE = /캐\s*디\s*피/;
-    const caddie = [];
-    lines.forEach(ln=>{ if(CADDIE.test(ln)){ const v=grabSameLine(ln); if(v) caddie.push(v); } });
-    if (caddie.length) return caddie;        // 같은 금액 여러 장이면 중복 보존(합산)
-
-    // 폴백: 합계류 키워드
-    const tiers = [ /(합\s*계|합계액)/, /(받을\s*금액|결제\s*금액|청구\s*금액|총\s*금?액)/ ];
-    for (const kw of tiers){
-      const vals=[]; lines.forEach((ln,i)=>{ if(kw.test(ln)){ const v=grabNear(i); if(v) vals.push(v); } });
-      if (vals.length) return vals;
-    }
-    // 최후 폴백: 콤마 있는 숫자 전부
-    const all=[]; lines.forEach(ln=>{ numAll(ln).forEach(v=>{ if(String(v).length>=4) all.push(v); }); });
-    return all;
+    const CADDIE  = /캐\s*디\s*피/;
+    const NUM_WON = /([0-9][0-9,]*)\s*원/;     // '원' 앞의 금액
+    const amounts = [];
+    lines.forEach(ln=>{
+      const ci = ln.search(CADDIE);
+      if (ci < 0) return;                       // 캐디피 없는 줄 무시
+      const m = ln.slice(ci).match(NUM_WON);    // 캐디피 이후 첫 '…원'
+      if (m){
+        const v = parseInt(m[1].replace(/,/g,''), 10);
+        if (v) amounts.push(v);                 // 같은 금액 여러 장이면 중복 보존(합산)
+      }
+    });
+    return amounts;   // 매칭이 없으면 빈 배열 → 사용자가 직접 입력
   }
-  function extractVendor(){ return ''; }  // 골프장명은 직접 입력으로 대체 (미사용)
+  // 골프장명: 로고가 감지되면 로고와 같은 높이대의 '오른쪽 첫 줄' 글자를 가져온다(영어 포함).
+  // 로고가 없거나(대부분의 자체 로고는 미감지) 옆 글자가 없으면 공란.
+  function extractVendorByLogo(r){
+    const logos = r.logoAnnotations || [];
+    const words = (r.textAnnotations || []).slice(1);   // [0]은 전체 텍스트라 제외
+    if (!logos.length || !words.length) return '';
+    const lv = logos[0].boundingPoly?.vertices || [];
+    if (!lv.length) return '';
+    const lx = lv.map(p=>p.x||0), ly = lv.map(p=>p.y||0);
+    const logo = { right:Math.max(...lx), top:Math.min(...ly), bottom:Math.max(...ly) };
+    const logoCY = (logo.top + logo.bottom)/2;
+    const logoH  = (logo.bottom - logo.top) || 1;
+
+    // 각 단어의 박스 좌표 정리
+    const boxes = words.map(w=>{
+      const v = w.boundingPoly?.vertices || []; if (!v.length) return null;
+      const xs = v.map(p=>p.x||0), ys = v.map(p=>p.y||0);
+      return { text:w.description, left:Math.min(...xs), cx:(Math.min(...xs)+Math.max(...xs))/2,
+               cy:(Math.min(...ys)+Math.max(...ys))/2 };
+    }).filter(Boolean);
+
+    // 로고 오른쪽 + 로고와 세로로 겹치는(±logoH) 단어만
+    const beside = boxes.filter(b => b.cx > logo.right - logoH*0.3 && Math.abs(b.cy - logoCY) <= logoH);
+    if (!beside.length) return '';
+
+    // 가장 위 줄 기준으로 묶어 좌→우 결합
+    beside.sort((a,b)=> a.cy - b.cy || a.left - b.left);
+    const lineCY = beside[0].cy;
+    const line = beside.filter(b => Math.abs(b.cy - lineCY) <= logoH*0.6).sort((a,b)=> a.left - b.left);
+    // 한글은 붙이고 영문 토큰은 공백 유지
+    let name = '';
+    line.forEach((b,i)=>{
+      const sp = (i>0 && /[A-Za-z0-9]$/.test(name) && /^[A-Za-z0-9]/.test(b.text)) ? ' ' : '';
+      name += sp + b.text;
+    });
+    return name.trim();
+  }
 
   /* ---- 금액 목록(영수증별) 관리 + 실시간 합산 ---- */
   function readAmountInputs(){
@@ -549,7 +568,6 @@
     if (!state.vendor){ toast('거래처명을 입력해 주세요.'); return; }
     if (!state.date){ toast('일자를 입력해 주세요.'); return; }
     if (!state.amount || state.amount === '0'){ toast('금액을 입력해 주세요.'); return; }
-    saveVendor(state.vendor);   // 다음 입력을 위해 골프장명 기억
     renderPreview();
     show('previewScreen');
   });
