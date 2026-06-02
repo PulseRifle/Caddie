@@ -138,20 +138,31 @@
       <div id="captureStep" hidden>
         <div class="flex items-center justify-between mb-3">
           <span class="text-[13px] font-medium text-navy-700">촬영 <span id="captProgress">0 / 0</span></span>
-          <span id="ocrStatus" class="text-[12px] text-navy-600/70 flex items-center gap-2" hidden>
-            <span class="inline-block w-3 h-3 border-2 border-gold-500 border-t-transparent rounded-full animate-spin"></span>추출 중…
-          </span>
         </div>
+
+        <!-- 촬영 버튼 -->
         <label id="photoBox" class="block border-2 border-dashed border-navy-900/15 rounded-2xl bg-white p-6 text-center cursor-pointer hover:border-gold-500/50 transition">
           <input id="photoInput" type="file" accept="image/*" capture="environment" class="hidden" />
           <div class="text-3xl mb-2">📷</div>
           <p id="captLabel" class="text-[14px] font-medium">1번째 영수증 촬영</p>
           <p class="text-[12px] text-navy-600/55 mt-1">탭하여 카메라 실행</p>
         </label>
-        <p id="captDone" class="text-[12px] text-gold-500 mt-2 text-center" hidden>모든 영수증 촬영 완료</p>
 
-        <!-- 촬영된 영수증 (썸네일 + 금액, 수정 가능) -->
-        <div id="shotList" class="mt-4 space-y-2"></div>
+        <!-- 촬영 확인 -->
+        <div id="confirmStep" hidden>
+          <p class="text-[13px] text-navy-600/70 mb-2"><span id="confirmLabel">1</span>번째 영수증 — 확인</p>
+          <img id="confirmImg" class="w-full rounded-xl border border-navy-900/10 max-h-72 object-contain bg-white" alt="촬영 미리보기" />
+          <div class="flex gap-3 mt-3">
+            <button id="retakeShotBtn" type="button" class="flex-1 border border-navy-900/15 rounded-xl py-3 text-[14px] font-medium active:scale-[.99] transition">다시 촬영</button>
+            <button id="confirmShotBtn" type="button" class="flex-1 bg-navy-900 text-white rounded-xl py-3 text-[14px] font-medium active:scale-[.99] transition">확인</button>
+          </div>
+        </div>
+
+        <!-- 전체 금액 추출 진행 -->
+        <div id="ocrAllStatus" class="text-[13px] text-navy-600/70 mt-5 flex items-center gap-2 justify-center" hidden>
+          <span class="inline-block w-4 h-4 border-2 border-gold-500 border-t-transparent rounded-full animate-spin"></span>
+          <span id="ocrAllText">금액 추출 중…</span>
+        </div>
       </div>
 
       <!-- (C) 항목 확인 / 발송 -->
@@ -166,7 +177,11 @@
           <input id="fDate" type="date"
                  class="w-full border border-navy-900/15 rounded-xl px-4 py-3 text-[15px] focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
         </div>
-        <div class="flex items-center justify-between pt-1 border-t border-navy-900/10">
+        <div>
+          <label class="block text-[12px] font-medium text-navy-700 mb-1.5">영수증별 캐디피 금액 <span class="text-navy-600/45 font-normal">(수정 가능)</span></label>
+          <div id="shotList" class="space-y-2"></div>
+        </div>
+        <div class="flex items-center justify-between pt-3 border-t border-navy-900/10">
           <span class="text-[13px] font-medium text-navy-700">캐디피 합계 (<span id="shotCount">0</span>팀)</span>
           <span id="amountTotal" class="text-[16px] font-semibold text-navy-900">0원</span>
         </div>
@@ -274,7 +289,7 @@
   const $ = (id) => document.getElementById(id);
   const screens = ['authScreen','homeScreen','captureScreen','previewScreen'];
   const state = { emp:'', type:'', photoDataUrl:'', vendor:'', date:'', amount:'',
-                  teamCount:1, receipts:[] };   // receipts: [{ photo, amount }]
+                  teamCount:1, shots:[], pendingPhoto:'', receipts:[] };   // receipts: [{ photo, amount }]
 
   function show(id){
     screens.forEach(s => $(s).hidden = (s !== id));
@@ -339,65 +354,96 @@
      ===================================================================== */
   function resetCapture(){
     state.photoDataUrl=''; state.vendor=''; state.date=''; state.amount='';
-    state.teamCount=1; state.receipts=[];
+    state.teamCount=1; state.receipts=[]; state.shots=[]; state.pendingPhoto='';
     $('teamCount').value = '1';
     $('teamCountStep').hidden = false;
     $('captureStep').hidden = true;
+    $('confirmStep').hidden = true;
+    $('ocrAllStatus').hidden = true;
     $('fields').hidden = true;
-    $('ocrStatus').hidden = true;
-    $('captDone').hidden = true;
     $('photoBox').style.display = '';
     $('photoInput').value=''; $('fVendor').value=''; $('fDate').value='';
     $('shotList').innerHTML=''; $('amountTotal').textContent='0원'; $('shotCount').textContent='0';
   }
 
-  // 팀수 +/- 및 촬영 시작
+  // 팀수 +/-
   $('teamMinus').addEventListener('click', ()=>{ const el=$('teamCount'); el.value=Math.max(1,(parseInt(el.value)||1)-1); });
   $('teamPlus').addEventListener('click',  ()=>{ const el=$('teamCount'); el.value=Math.min(30,(parseInt(el.value)||1)+1); });
+
+  // 촬영 시작
   $('startCaptureBtn').addEventListener('click', ()=>{
-    const n = Math.max(1, Math.min(30, parseInt($('teamCount').value)||1));
-    state.teamCount = n; state.receipts = [];
+    state.teamCount = Math.max(1, Math.min(30, parseInt($('teamCount').value)||1));
+    state.shots = []; state.receipts = [];
     $('teamCountStep').hidden = true;
     $('captureStep').hidden = false;
-    $('captDone').hidden = true;
-    $('photoBox').style.display = '';
-    updateCaptureUI();
+    $('fields').hidden = true;
+    showCapturePrompt();
   });
 
-  function updateCaptureUI(){
-    const done = state.receipts.length, total = state.teamCount;
-    $('captProgress').textContent = `${done} / ${total}`;
-    $('captLabel').textContent = `${done+1}번째 영수증 촬영`;
-    const finished = done >= total;
-    $('photoBox').style.display = finished ? 'none' : '';
-    $('captDone').hidden = !finished;
-    $('fields').hidden = (done === 0);          // 1장이라도 찍으면 항목 영역 표시
-    $('shotCount').textContent = String(done);
+  // 다음 한 장을 찍도록 촬영 버튼 표시
+  function showCapturePrompt(){
+    $('confirmStep').hidden = true;
+    $('ocrAllStatus').hidden = true;
+    $('photoBox').style.display = '';
+    $('captProgress').textContent = `${state.shots.length} / ${state.teamCount}`;
+    $('captLabel').textContent = `${state.shots.length+1}번째 영수증 촬영`;
   }
 
-  // 한 장 촬영 → 그 사진만 OCR → 캐디피 금액 1건 추출
+  // 사진 촬영 → 확인 단계로 (OCR은 아직 안 함)
   $('photoInput').addEventListener('change', async (e)=>{
     const file = e.target.files[0]; if (!file) return;
-    $('photoInput').value = '';                 // 같은 파일 재선택 허용
-    const dataUrl = await compressImage(file);
-    $('ocrStatus').hidden = false;
-    let result = { amounts:[], vendor:'', date:'' };
-    try { result = await ocrImage(dataUrl); }
-    catch(err){ console.error(err); toast('자동 추출 실패 — 금액을 직접 입력해 주세요.'); }
-    finally { $('ocrStatus').hidden = true; }
-
-    // 첫 장에서 골프장명·일자 채움(비어 있을 때만)
-    if (state.receipts.length === 0){
-      if (!$('fVendor').value && result.vendor) $('fVendor').value = result.vendor;
-      $('fDate').value = result.date || new Date().toISOString().slice(0,10);
-    }
-    const amount = result.amounts.length ? result.amounts[0] : 0;   // 영수증 1장 = 금액 1건
-    state.receipts.push({ photo: dataUrl, amount });
-    renderShots();
-    updateCaptureUI();
-    toast(amount ? `${state.receipts.length}번째 캐디피 ${comma(String(amount))}원`
-                 : `${state.receipts.length}번째 — 금액 미인식, 직접 입력`);
+    $('photoInput').value = '';
+    state.pendingPhoto = await compressImage(file);
+    $('confirmImg').src = state.pendingPhoto;
+    $('confirmLabel').textContent = String(state.shots.length+1);
+    $('photoBox').style.display = 'none';
+    $('confirmStep').hidden = false;
   });
+
+  // 다시 촬영
+  $('retakeShotBtn').addEventListener('click', ()=>{
+    state.pendingPhoto = '';
+    $('confirmStep').hidden = true;
+    $('photoInput').click();
+  });
+
+  // 확인 → 저장 후 다음 장, 또는 마지막이면 일괄 OCR
+  $('confirmShotBtn').addEventListener('click', async ()=>{
+    if (!state.pendingPhoto) return;
+    state.shots.push(state.pendingPhoto);
+    state.pendingPhoto = '';
+    $('confirmStep').hidden = true;
+    if (state.shots.length < state.teamCount){
+      showCapturePrompt();                 // 다음 장 촬영
+    } else {
+      await runAllOcr();                    // 모두 촬영 완료 → 한 번에 추출/표시
+    }
+  });
+
+  // 촬영한 모든 영수증을 순차 OCR → 금액 한 번에 표시
+  async function runAllOcr(){
+    $('photoBox').style.display = 'none';
+    $('captProgress').textContent = `${state.shots.length} / ${state.teamCount}`;
+    $('ocrAllStatus').hidden = false;
+    state.receipts = [];
+    for (let i=0; i<state.shots.length; i++){
+      $('ocrAllText').textContent = `금액 추출 중… ${i+1} / ${state.shots.length}`;
+      let result = { amounts:[], vendor:'', date:'' };
+      try { result = await ocrImage(state.shots[i]); }
+      catch(err){ console.error(err); }
+      if (i === 0){
+        if (result.vendor) $('fVendor').value = result.vendor;
+        $('fDate').value = result.date || new Date().toISOString().slice(0,10);
+      }
+      state.receipts.push({ photo: state.shots[i], amount: result.amounts.length ? result.amounts[0] : 0 });
+    }
+    $('ocrAllStatus').hidden = true;
+    $('shotCount').textContent = String(state.receipts.length);
+    renderShots();
+    $('fields').hidden = false;
+    const miss = state.receipts.filter(r=>!r.amount).length;
+    toast(miss ? `${miss}건은 금액 미인식 — 직접 입력해 주세요.` : '금액 추출 완료 — 확인 후 발송하세요.');
+  }
 
   // 촬영된 영수증 카드(썸네일 + 금액 + 삭제) 렌더
   function renderShots(){
@@ -529,22 +575,25 @@
     const pad = n => String(n).padStart(2,'0');
     return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
   }
-  // 캐디피 영수증: '캐디피' 뒤에 오는 "…원" 금액을 수집해 합산.
-  //  - 같은 줄에 여러 '캐디피…원'이 있어도 모두 잡는다(여러 영수증이 한 줄로 읽힌 경우).
-  //  - '캐디피' 접두가 없는 금액(부가세 등)은 무시한다.
+  // 영수증 1장에서 금액 1건 추정(일반 규칙). 영수증당 한 장씩 촬영하므로 가장 큰 금액을 합계액으로 본다.
+  //  - 후보: '원'이 붙은 숫자 또는 천 단위 콤마 숫자(전화/사업자번호 등 오인식 방지).
+  //  - '합계/금액' 류 키워드 인근 금액이 있으면 우선. 결과는 화면에서 수정 가능.
   function extractAmounts(lines){
-    const PAIR = /캐\s*디\s*피[\s\S]*?([0-9][0-9,]*)\s*원/g;   // 캐디피 → 다음 '…원'
-    const collect = (s)=>{
-      const out=[]; let m; PAIR.lastIndex = 0;
-      while((m = PAIR.exec(s))){ const v = parseInt(m[1].replace(/,/g,''),10); if (v) out.push(v); }
-      return out;
+    const text = lines.join('\n');
+    const grab = (s)=>{
+      const out=[]; let m;
+      const reWon=/([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,})\s*원/g;          // …원
+      while((m=reWon.exec(s))) out.push(parseInt(m[1].replace(/,/g,''),10));
+      const reComma=/([0-9]{1,3}(?:,[0-9]{3})+)/g;                       // 1,234 형태
+      while((m=reComma.exec(s))) out.push(parseInt(m[1].replace(/,/g,''),10));
+      return out.filter(v=>v>0);
     };
-    // 1) 줄 단위(같은 행 규칙)
-    let amounts = [];
-    lines.forEach(ln=>{ amounts = amounts.concat(collect(ln)); });
-    if (amounts.length) return amounts;
-    // 2) 폴백: 전체 텍스트 (캐디피와 금액이 줄바꿈으로 떨어진 경우)
-    return collect(lines.join('\n'));
+    // 1) 합계/금액 류 키워드 인근 우선
+    const TOTAL=/(합\s*계|합계액|받을\s*금액|결제\s*금액|총\s*금?액|금\s*액)/;
+    const near=[];
+    lines.forEach((ln,i)=>{ if(TOTAL.test(ln)) near.push(...grab(ln+' '+(lines[i+1]||''))); });
+    const pool = near.length ? near : grab(text);
+    return pool.length ? [Math.max(...pool)] : [];   // 가장 큰 금액 1건(보통 합계)
   }
   // 골프장명: 상단에 그림(로고)이 있다고 추정되면 그 아래 '첫 글자 줄'을 가져온다(영어 포함).
   //  - 그림 추정: Vision이 로고를 감지했거나, 이미지 맨 위~첫 글자 사이 여백이 충분히 큼.
@@ -626,7 +675,7 @@
     const btn = e.target.closest('.amt-del'); if (!btn) return;
     state.receipts.splice(parseInt(btn.dataset.idx,10), 1);
     renderShots();
-    updateCaptureUI();   // 미촬영 상태로 돌아가면 촬영 버튼 다시 표시
+    $('shotCount').textContent = String(state.receipts.length);
   });
 
   $('toPreviewBtn').addEventListener('click', async ()=>{
