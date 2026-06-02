@@ -453,22 +453,22 @@
     const pad = n => String(n).padStart(2,'0');
     return `${m[1]}-${pad(m[2])}-${pad(m[3])}`;
   }
-  // 캐디피 영수증: '캐디피'가 있는 같은 행에서, 캐디피 이후 처음 나오는 "…원" 금액만 추출.
-  // 캐디피가 없는 줄/숫자, 그리고 '원'이 안 붙은 숫자는 모두 무시한다(과다 추출 방지).
+  // 캐디피 영수증: '캐디피' 뒤에 오는 "…원" 금액을 수집해 합산.
+  //  - 같은 줄에 여러 '캐디피…원'이 있어도 모두 잡는다(여러 영수증이 한 줄로 읽힌 경우).
+  //  - '캐디피' 접두가 없는 금액(부가세 등)은 무시한다.
   function extractAmounts(lines){
-    const CADDIE  = /캐\s*디\s*피/;
-    const NUM_WON = /([0-9][0-9,]*)\s*원/;     // '원' 앞의 금액
-    const amounts = [];
-    lines.forEach(ln=>{
-      const ci = ln.search(CADDIE);
-      if (ci < 0) return;                       // 캐디피 없는 줄 무시
-      const m = ln.slice(ci).match(NUM_WON);    // 캐디피 이후 첫 '…원'
-      if (m){
-        const v = parseInt(m[1].replace(/,/g,''), 10);
-        if (v) amounts.push(v);                 // 같은 금액 여러 장이면 중복 보존(합산)
-      }
-    });
-    return amounts;   // 매칭이 없으면 빈 배열 → 사용자가 직접 입력
+    const PAIR = /캐\s*디\s*피[\s\S]*?([0-9][0-9,]*)\s*원/g;   // 캐디피 → 다음 '…원'
+    const collect = (s)=>{
+      const out=[]; let m; PAIR.lastIndex = 0;
+      while((m = PAIR.exec(s))){ const v = parseInt(m[1].replace(/,/g,''),10); if (v) out.push(v); }
+      return out;
+    };
+    // 1) 줄 단위(같은 행 규칙)
+    let amounts = [];
+    lines.forEach(ln=>{ amounts = amounts.concat(collect(ln)); });
+    if (amounts.length) return amounts;
+    // 2) 폴백: 전체 텍스트 (캐디피와 금액이 줄바꿈으로 떨어진 경우)
+    return collect(lines.join('\n'));
   }
   // 골프장명: 상단에 그림(로고)이 있다고 추정되면 그 아래 '첫 글자 줄'을 가져온다(영어 포함).
   //  - 그림 추정: Vision이 로고를 감지했거나, 이미지 맨 위~첫 글자 사이 여백이 충분히 큼.
@@ -509,10 +509,16 @@
     const hasLetter = (s)=> /[가-힣A-Za-z]/.test(s);
     for (const ln of lines){
       const sorted = ln.slice().sort((a,b)=> a.left - b.left);
+      // 중복 단어 제거(앞에서부터 첫 등장만 유지, 영문 대소문자 무시)
+      const seen = new Set(); const toks = [];
+      sorted.forEach(b=>{
+        const key = b.text.trim().toLowerCase();
+        if (key && !seen.has(key)){ seen.add(key); toks.push(b.text); }
+      });
       let name = '';
-      sorted.forEach((b,i)=>{
-        const sp = (i>0 && /[A-Za-z0-9]$/.test(name) && /^[A-Za-z0-9]/.test(b.text)) ? ' ' : '';
-        name += sp + b.text;
+      toks.forEach((t,i)=>{
+        const sp = (i>0 && /[A-Za-z0-9]$/.test(name) && /^[A-Za-z0-9]/.test(t)) ? ' ' : '';
+        name += sp + t;
       });
       name = name.trim();
       if (hasLetter(name)) return name;   // 숫자/날짜만 있는 줄은 건너뜀
