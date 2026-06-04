@@ -110,7 +110,36 @@
       </div>
     </section>
 
-    <!-- ============ (2) 촬영 / 추출 / 수정 ============ -->
+    <!-- ============ (1-A) 관리자 페이지 ============ -->
+    <section id="adminScreen" class="fade-in" hidden>
+      <div class="flex items-center justify-between mb-4">
+        <p class="text-[13px] text-navy-600/70"><span id="adminBadge" class="font-semibold text-navy-900"></span> 관리자</p>
+        <button id="adminToUser" class="text-[11px] text-navy-600/50 hover:text-navy-900 transition">영수증 제출 화면</button>
+      </div>
+
+      <div class="bg-white rounded-2xl card-shadow p-6">
+        <h2 class="text-base font-semibold mb-1">기간별 정산 발송</h2>
+        <p class="text-[13px] text-navy-600/70 mb-5">선택한 기간의 제출내역과 영수증을 수신 메일로 발송합니다.</p>
+
+        <label class="block text-[12px] font-medium text-navy-700 mb-1.5">기간 (From)</label>
+        <input id="admFrom" type="date" class="w-full border border-navy-900/15 rounded-xl px-4 py-3 text-[15px] mb-4 focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
+        <label class="block text-[12px] font-medium text-navy-700 mb-1.5">기간 (To)</label>
+        <input id="admTo" type="date" class="w-full border border-navy-900/15 rounded-xl px-4 py-3 text-[15px] focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
+
+        <div id="admResult" class="text-[12px] text-navy-600/70 mt-4" hidden></div>
+      </div>
+
+      <!-- 수신 이메일 (읽기 전용) -->
+      <div class="mt-4 bg-white rounded-2xl card-shadow p-4">
+        <p class="text-[11px] text-navy-600/55 mb-1">현재 수신 중인 이메일 주소 (변경 불가)</p>
+        <p id="admRecipient" class="text-[14px] font-medium break-all">—</p>
+      </div>
+
+      <button id="admSendBtn"
+              class="w-full mt-5 bg-gold-500 text-white rounded-xl py-3.5 text-[15px] font-semibold active:scale-[.99] transition disabled:opacity-50">
+        발송하기
+      </button>
+    </section>
     <section id="captureScreen" class="fade-in" hidden>
       <button class="backBtn text-[13px] text-navy-600/70 mb-4">‹ 뒤로</button>
       <h2 class="text-base font-semibold mb-1"><span class="typeLabel"></span> 영수증</h2>
@@ -284,9 +313,9 @@
      상태 & 유틸
      ===================================================================== */
   const $ = (id) => document.getElementById(id);
-  const screens = ['authScreen','homeScreen','captureScreen','previewScreen'];
+  const screens = ['authScreen','homeScreen','adminScreen','captureScreen','previewScreen'];
   const state = { emp:'', type:'', photoDataUrl:'', vendor:'', date:'', amount:'',
-                  teamCount:1, shots:[], receipts:[] };   // receipts: [{ photo, amount }]
+                  teamCount:1, shots:[], receipts:[], isAdmin:false, recipient:'' };
 
   function show(id){
     screens.forEach(s => $(s).hidden = (s !== id));
@@ -300,8 +329,24 @@
   const onlyDigits = (v) => (v||'').replace(/[^\d]/g,'');
   const comma = (v) => onlyDigits(v).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
+  // GAS 응답을 CORS 제약 없이 읽기 위한 JSONP (GET + script 태그)
+  function jsonp(params, timeoutMs){
+    return new Promise((resolve, reject)=>{
+      if (!CONFIG.GAS_ENDPOINT) return reject(new Error('no endpoint'));
+      const cb = 'cb_' + Date.now() + '_' + Math.floor(Math.random()*10000);
+      const s = document.createElement('script');
+      const q = new URLSearchParams(Object.assign({}, params, { callback: cb })).toString();
+      const done = (fn)=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } s.remove(); fn(); };
+      window[cb] = (data)=> done(()=> resolve(data));
+      s.onerror = ()=> done(()=> reject(new Error('network')));
+      s.src = CONFIG.GAS_ENDPOINT + '?' + q;
+      document.body.appendChild(s);
+      setTimeout(()=>{ if (window[cb]) done(()=> reject(new Error('timeout'))); }, timeoutMs || 25000);
+    });
+  }
+
   /* =====================================================================
-     사번 인증 (기기 단위 기억 — IP 매핑은 백엔드 필요, 아래 설명 참고)
+     사번 인증 + 관리자 판별
      ===================================================================== */
   function getSavedEmp(){ try { return localStorage.getItem('emp_no') || ''; } catch(e){ return ''; } }
   function saveEmp(v){ try { localStorage.setItem('emp_no', v); } catch(e){} }
@@ -309,24 +354,71 @@
 
   function boot(){
     const saved = getSavedEmp();
-    if (saved){ state.emp = saved; enterApp(); }
+    if (saved){ state.emp = saved; proceedWithEmp(); }
     else { show('authScreen'); }
   }
-  function enterApp(){
+
+  // 사번 확정 → 관리자 여부 확인(GAS) → 관리자/일반 분기
+  async function proceedWithEmp(){
     $('empBadge').textContent = state.emp;
+    $('adminBadge').textContent = state.emp;
     $('logoutBtn').hidden = false;
-    show('homeScreen');
+    state.isAdmin = false;
+    state.recipient = CONFIG.RECIPIENT_EMAIL;
+    try {
+      const r = await jsonp({ action:'checkAdmin', emp: state.emp }, 15000);
+      if (r && r.ok){
+        state.isAdmin = !!r.isAdmin;
+        if (r.recipient) state.recipient = r.recipient;
+      }
+    } catch(e){ /* 확인 실패 시 일반 사용자로 진행 */ }
+    if (state.isAdmin){
+      $('admRecipient').textContent = state.recipient || '—';
+      show('adminScreen');
+    } else {
+      show('homeScreen');
+    }
   }
 
   $('empSubmit').addEventListener('click', ()=>{
     const v = onlyDigits($('empInput').value.trim()) || $('empInput').value.trim();
     if (!v){ $('empError').hidden = false; return; }
     $('empError').hidden = true;
-    state.emp = v; saveEmp(v); enterApp();
+    state.emp = v; saveEmp(v); proceedWithEmp();
   });
   $('logoutBtn').addEventListener('click', ()=>{
     if (confirm('사번을 변경하시겠습니까? 이 기기의 저장된 사번이 초기화됩니다.')){
       clearEmp(); state.emp=''; $('empInput').value=''; $('logoutBtn').hidden=true; show('authScreen');
+    }
+  });
+
+  // 관리자 → 일반 제출 화면으로 전환
+  $('adminToUser').addEventListener('click', ()=> show('homeScreen'));
+
+  // 관리자: 기간별 정산 발송 (GAS가 메일 발송 + 첨부 + 로그 처리)
+  $('admSendBtn').addEventListener('click', async ()=>{
+    const from = $('admFrom').value, to = $('admTo').value;
+    if (!from || !to){ toast('기간(From·To)을 입력해 주세요.'); return; }
+    if (from > to){ toast('From이 To보다 늦습니다. 기간을 확인해 주세요.'); return; }
+    const btn = $('admSendBtn'); btn.disabled = true; btn.textContent = '발송 중…';
+    const box = $('admResult'); box.hidden = true;
+    try {
+      const r = await jsonp({ action:'adminSend', from, to }, 60000);
+      if (r && r.ok){
+        box.className = 'text-[12px] text-navy-700 mt-4';
+        box.innerHTML = `발송 완료 · 제출내역 ${r.count||0}건, 영수증 ${r.fileCount||0}장`
+          + (r.skipped ? ` (용량 초과로 ${r.skipped}장 제외)` : '');
+        box.hidden = false;
+      } else {
+        throw new Error((r && r.error) || '실패');
+      }
+    } catch(err){
+      console.error(err);
+      box.className = 'text-[12px] text-red-600 mt-4';
+      box.textContent = '발송에 실패했습니다. 다시 시도해 주세요.';
+      box.hidden = false;
+    } finally {
+      btn.disabled = false; btn.textContent = '발송하기';
     }
   });
 
@@ -725,8 +817,8 @@
     return [state.emp, state.date, state.vendor, comma(state.amount)+'원'].join('_');
   }
   function renderPreview(){
-    $('pvTo').textContent = CONFIG.RECIPIENT_EMAIL;
-    $('pvBodyTo').textContent = CONFIG.RECIPIENT_EMAIL;
+    $('pvTo').textContent = state.recipient || CONFIG.RECIPIENT_EMAIL;
+    $('pvBodyTo').textContent = state.recipient || CONFIG.RECIPIENT_EMAIL;
     $('pvSubject').textContent = buildSubject();
     $('tdEmp').textContent = state.emp;
     $('tdDate').textContent = state.date;
@@ -755,8 +847,8 @@
   // Google Apps Script 웹앱으로 전송 → 메일 발송 + 시트 기록 + 드라이브에 영수증 저장
   //  CORS 프리플라이트를 피하기 위해 text/plain(단순 요청)으로 보냄.
   async function saveToGoogle(){
+    const combined = await combineReceipts();         // 여러 장 → 1장으로 합성(드라이브 1파일 저장용)
     const payload = {
-      recipient: CONFIG.RECIPIENT_EMAIL,            // 요약 메일 수신자
       emp: state.emp,
       date: state.date,
       vendor: state.vendor,
@@ -765,7 +857,7 @@
       teamCount: state.teamCount,
       type: state.type,
       uploadedAt: new Date().toISOString(),         // 클라이언트 업로드 시각
-      images: state.receipts.map(r=>r.photo)        // 영수증 이미지(개별)
+      image: combined                               // 합쳐진 영수증 1장
     };
     const res = await fetch(CONFIG.GAS_ENDPOINT, {
       method: 'POST',
