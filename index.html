@@ -10,8 +10,6 @@
   <!-- Pretendard (한글 정제형 웹폰트) -->
   <link rel="stylesheet" as="style" crossorigin
         href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
-  <!-- EmailJS SDK (선택: 백엔드 없이 발송할 때만 사용) -->
-  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 
   <script>
     tailwind.config = {
@@ -272,14 +270,11 @@
      ⚙️  설정 (CONFIG) — 운영 시 이 부분만 채우면 됩니다.
      ===================================================================== */
   const CONFIG = {
-    // (필수) 영수증을 받을 이메일 주소
+    // (필수) 영수증 요약을 받을 이메일 주소
     RECIPIENT_EMAIL: 'sjshin@koreanre.co.kr',  // 추후 변경 가능
 
-    // (선택 A) EmailJS로 백엔드 없이 발송 — 발급받은 키 적용됨
-    EMAILJS: { PUBLIC_KEY: 'j6xxrPJerViPiWtig', SERVICE_ID: 'service_h77ckej', TEMPLATE_ID: 'template_4xhau5k' },
-
-    // (선택 B) 자체 백엔드로 발송할 경우의 엔드포인트 (예: '/api/send')
-    SEND_ENDPOINT: '',
+    // Google Apps Script 웹앱 URL — 메일 발송 + 구글시트 기록 + 드라이브 저장(모두 구글에서 처리)
+    GAS_ENDPOINT: 'https://script.google.com/macros/s/AKfycbw-4IIkE3yQzqeyKmD6E7C8X79ObXP5FrpgC2WULp0B6_ytXi9YmeeJWnkcXWOlUvuVVQ/exec',
 
     // Google Cloud Vision API 키 (일반 TEXT_DETECTION). 콘솔에서 리퍼러·할당량 제한 필수.
     GOOGLE_VISION_KEY: 'AIzaSyBnVV3zq7gSBUmUhrPE2hfGbA2PZbilyjw'
@@ -708,7 +703,7 @@
     $('shotCount').textContent = String(state.receipts.length);
   });
 
-  $('toPreviewBtn').addEventListener('click', async ()=>{
+  $('toPreviewBtn').addEventListener('click', ()=>{
     state.vendor = $('fVendor').value.trim();
     state.date   = $('fDate').value;
     recomputeTotal();   // state.amount = 합계
@@ -718,10 +713,6 @@
     if (!state.amount || state.amount === '0'){ toast('금액을 입력해 주세요.'); return; }
     if (state.receipts.length < state.teamCount &&
         !confirm(`팀수(${state.teamCount})보다 적은 ${state.receipts.length}장이 촬영되었습니다. 이대로 진행할까요?`)) return;
-    const btn = $('toPreviewBtn'); btn.disabled = true; btn.textContent = '영수증 합치는 중…';
-    try {
-      state.photoDataUrl = await combineReceipts();   // 여러 장 → 한 장으로 합성(첨부)
-    } finally { btn.disabled = false; btn.textContent = '이메일 미리보기'; }
     renderPreview();
     show('previewScreen');
   });
@@ -741,74 +732,50 @@
     $('tdDate').textContent = state.date;
     $('tdVendor').textContent = state.vendor;
     $('tdAmount').textContent = comma(state.amount)+'원';
-    const kb = state.photoDataUrl ? Math.round(dataUrlBytes(state.photoDataUrl)/1024) : 0;
-    $('pvAttach').textContent = `첨부: 영수증 ${state.receipts.length}장 합본 (약 ${kb}KB)`;
+    $('pvAttach').textContent = `영수증 ${state.receipts.length}장은 구글 드라이브에 저장됩니다 (이메일에는 첨부되지 않음)`;
   }
 
   /* =====================================================================
-     (4) 발송 — EmailJS 또는 자체 백엔드
+     (4) 발송 — EmailJS 요약 메일(첨부 없음) + 구글시트/드라이브 저장
      ===================================================================== */
   $('sendBtn').addEventListener('click', async ()=>{
-    const btn = $('sendBtn'); btn.disabled = true; btn.textContent = '발송 중…';
+    if (!CONFIG.GAS_ENDPOINT){ toast('구글 연동(GAS_ENDPOINT)이 설정되지 않았습니다.'); return; }
+    const btn = $('sendBtn'); btn.disabled = true; btn.textContent = '발송·저장 중…';
     try {
-      if (CONFIG.EMAILJS.PUBLIC_KEY){
-        await sendViaEmailJS();
-      } else if (CONFIG.SEND_ENDPOINT){
-        await sendViaBackend();
-      } else {
-        // 미연동 데모 모드
-        await new Promise(r=>setTimeout(r, 900));
-        console.warn('[데모] 발송 설정이 없어 실제 전송은 생략되었습니다.', {
-          to: CONFIG.RECIPIENT_EMAIL, subject: buildSubject()
-        });
-      }
+      await saveToGoogle();          // 구글에서 메일 발송 + 시트 기록 + 드라이브 저장
       $('doneModal').hidden = false;
     } catch(err){
       console.error(err);
-      toast('발송에 실패했습니다. 다시 시도해 주세요.');
+      toast('처리에 실패했습니다. 다시 시도해 주세요.');
     } finally {
       btn.disabled = false; btn.textContent = '발송하기';
     }
   });
 
-  function bodyText(){
-    return `ㅇ 이메일 주소: ${CONFIG.RECIPIENT_EMAIL}\n`
-         + `ㅇ 내용\n`
-         + `사 번\t일 자\t거래처명\t금 액\n`
-         + `${state.emp}\t${state.date}\t${state.vendor}\t${comma(state.amount)}원`;
-  }
-
-  // EmailJS: 템플릿 변수 {{subject}}, {{message}}, {{to_email}}, 첨부 {{photo}} (Content-ID/base64)
-  async function sendViaEmailJS(){
-    emailjs.init({ publicKey: CONFIG.EMAILJS.PUBLIC_KEY });
-    await emailjs.send(CONFIG.EMAILJS.SERVICE_ID, CONFIG.EMAILJS.TEMPLATE_ID, {
-      // 제목 조립용 — 템플릿 Subject: {{emp_id}}_{{date}}_{{store_name}}_{{amount}}
-      emp_id:     state.emp,
-      date:       state.date,
-      store_name: state.vendor,
-      amount:     comma(state.amount) + '원',
-      // 본문(Content)에서 {{message}} 사용 시
-      message:    bodyText(),
-      to_email:   CONFIG.RECIPIENT_EMAIL,
-      // 첨부 — 템플릿 Attachment 변수명 'photo' (Base64)
-      photo:      state.photoDataUrl
+  // Google Apps Script 웹앱으로 전송 → 메일 발송 + 시트 기록 + 드라이브에 영수증 저장
+  //  CORS 프리플라이트를 피하기 위해 text/plain(단순 요청)으로 보냄.
+  async function saveToGoogle(){
+    const payload = {
+      recipient: CONFIG.RECIPIENT_EMAIL,            // 요약 메일 수신자
+      emp: state.emp,
+      date: state.date,
+      vendor: state.vendor,
+      total: parseInt(state.amount || '0', 10),
+      amounts: state.receipts.map(r=>r.amount),     // 영수증별 금액
+      teamCount: state.teamCount,
+      type: state.type,
+      uploadedAt: new Date().toISOString(),         // 클라이언트 업로드 시각
+      images: state.receipts.map(r=>r.photo)        // 영수증 이미지(개별)
+    };
+    const res = await fetch(CONFIG.GAS_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
     });
-  }
-
-  // 자체 백엔드 발송 (권장): 사진 + 데이터 전송 → 서버에서 SMTP 발송
-  async function sendViaBackend(){
-    const res = await fetch(CONFIG.SEND_ENDPOINT, {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        to: CONFIG.RECIPIENT_EMAIL,
-        subject: buildSubject(),
-        body: bodyText(),
-        emp: state.emp, date: state.date, vendor: state.vendor, amount: state.amount,
-        type: state.type,
-        image: state.photoDataUrl   // 서버에서 디코드하여 첨부
-      })
-    });
-    if (!res.ok) throw new Error('send failed');
+    // 응답을 읽을 수 있으면 성공 여부 확인(읽기 실패해도 저장은 됐을 수 있음)
+    let data = null;
+    try { data = await res.json(); } catch(e){ /* CORS로 본문 못 읽는 경우 통과 */ }
+    if (data && data.ok === false) throw new Error(data.error || 'GAS 저장 실패');
   }
 
   /* =====================================================================
