@@ -285,8 +285,8 @@
       <div class="w-14 h-14 rounded-full bg-gold-500/12 mx-auto flex items-center justify-center mb-4">
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#b08d4f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
       </div>
-      <h3 class="text-base font-semibold mb-1">발송 완료</h3>
-      <p class="text-[13px] text-navy-600/70 leading-relaxed">영수증이 정상적으로 발송되었습니다.</p>
+      <h3 id="doneTitle" class="text-base font-semibold mb-1">발송 완료</h3>
+      <p id="doneDesc" class="text-[13px] text-navy-600/70 leading-relaxed">영수증이 정상적으로 발송되었습니다.</p>
       <button id="doneBtn" class="w-full mt-5 bg-navy-900 text-white rounded-xl py-3 text-[14px] font-medium active:scale-[.99] transition">확인</button>
     </div>
   </div>
@@ -409,6 +409,10 @@
         box.innerHTML = `발송 완료 · 제출내역 ${r.count||0}건, 영수증 ${r.fileCount||0}장`
           + (r.skipped ? ` (용량 초과로 ${r.skipped}장 제외)` : '');
         box.hidden = false;
+        openDone('정산 발송 완료',
+          `제출내역 ${r.count||0}건 · 영수증 ${r.fileCount||0}장을 수신 메일로 발송했습니다.`
+          + (r.skipped ? ` (용량 초과 ${r.skipped}장 제외)` : ''),
+          ()=>{});   // 닫기만(관리자 화면 유지)
       } else {
         throw new Error((r && r.error) || '실패');
       }
@@ -835,7 +839,8 @@
     const btn = $('sendBtn'); btn.disabled = true; btn.textContent = '발송·저장 중…';
     try {
       await saveToGoogle();          // 구글에서 메일 발송 + 시트 기록 + 드라이브 저장
-      $('doneModal').hidden = false;
+      openDone('발송 완료', '영수증이 정상적으로 발송되었습니다.',
+               ()=>{ resetCapture(); show('homeScreen'); });
     } catch(err){
       console.error(err);
       toast('처리에 실패했습니다. 다시 시도해 주세요.');
@@ -873,10 +878,18 @@
   /* =====================================================================
      (5) 완료 → 초기화
      ===================================================================== */
+  // 범용 완료 팝업
+  let doneOnClose = null;
+  function openDone(title, desc, onClose){
+    $('doneTitle').textContent = title;
+    $('doneDesc').textContent = desc;
+    doneOnClose = onClose || null;
+    $('doneModal').hidden = false;
+  }
   $('doneBtn').addEventListener('click', ()=>{
     $('doneModal').hidden = true;
-    resetCapture();
-    show('homeScreen');
+    const fn = doneOnClose; doneOnClose = null;
+    if (fn) fn(); else { resetCapture(); show('homeScreen'); }
   });
 
   boot();
