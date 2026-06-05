@@ -86,6 +86,9 @@
         <p class="text-[13px] text-navy-600/70">
           <span id="empBadge" class="font-semibold text-navy-900"></span> 님
         </p>
+        <button id="historyBtn" class="text-[12px] font-medium text-gold-500 hover:text-gold-400 transition flex items-center gap-1">
+          제출내역 ›
+        </button>
       </div>
       <p class="text-[12px] font-medium text-navy-700 mb-2.5">영수증 종류</p>
       <div class="space-y-3">
@@ -108,6 +111,20 @@
           <span class="text-navy-900/25 text-xl">›</span>
         </button>
       </div>
+    </section>
+
+    <!-- ============ (1-B) 내 제출내역 ============ -->
+    <section id="historyScreen" class="fade-in" hidden>
+      <button id="historyBack" class="text-[13px] text-navy-600/70 mb-4">‹ 뒤로</button>
+      <h2 class="text-base font-semibold mb-1"><span id="histEmp"></span> 제출내역</h2>
+      <p class="text-[13px] text-navy-600/70 mb-4">최근 제출한 내역입니다 (최신순).</p>
+
+      <div id="histLoading" class="text-[13px] text-navy-600/70 flex items-center gap-2 py-6 justify-center" hidden>
+        <span class="inline-block w-4 h-4 border-2 border-gold-500 border-t-transparent rounded-full animate-spin"></span>
+        불러오는 중…
+      </div>
+      <div id="histEmpty" class="text-[13px] text-navy-600/55 text-center py-10" hidden>제출한 내역이 없습니다.</div>
+      <div id="histList" class="space-y-3"></div>
     </section>
 
     <!-- ============ (1-A) 관리자 페이지 ============ -->
@@ -176,12 +193,12 @@
         </div>
         <p id="camHint" class="text-[12px] text-navy-600/55 mt-2 text-center" hidden>영수증을 비추고 셔터를 누르세요</p>
 
-        <!-- 카메라 불가 시 폴백: 파일 촬영(한 장씩) -->
+        <!-- 카메라 폴백: 여러 장 한 번에 선택/촬영 -->
         <label id="photoBox" class="block border-2 border-dashed border-navy-900/15 rounded-2xl bg-white p-6 text-center cursor-pointer hover:border-gold-500/50 transition" hidden>
-          <input id="photoInput" type="file" accept="image/*" capture="environment" class="hidden" />
+          <input id="photoInput" type="file" accept="image/*" multiple class="hidden" />
           <div class="text-3xl mb-2">📷</div>
-          <p id="captLabel" class="text-[14px] font-medium">1번째 영수증 촬영</p>
-          <p class="text-[12px] text-navy-600/55 mt-1">탭하여 촬영 (카메라 직접 촬영 불가 환경)</p>
+          <p id="captLabel" class="text-[14px] font-medium">영수증 사진 선택 / 촬영</p>
+          <p class="text-[12px] text-navy-600/55 mt-1">여러 장을 한 번에 선택할 수 있습니다 (팀수만큼)</p>
         </label>
 
         <!-- 촬영 썸네일 -->
@@ -299,21 +316,37 @@
      ⚙️  설정 (CONFIG) — 운영 시 이 부분만 채우면 됩니다.
      ===================================================================== */
   const CONFIG = {
-    // (필수) 영수증 요약을 받을 이메일 주소
-    RECIPIENT_EMAIL: 'sjshin@koreanre.co.kr',  // 추후 변경 가능
+    // 수신 메일은 구글시트 '수신이메일' 탭에서 관리됩니다. 아래는 미리보기 표시용 기본값입니다.
+    RECIPIENT_EMAIL: 'sjshin@koreanre.co.kr',
 
-    // Google Apps Script 웹앱 URL — 메일 발송 + 구글시트 기록 + 드라이브 저장(모두 구글에서 처리)
+    // Google Apps Script 웹앱 URL — 메일 발송 + 시트 기록 + 드라이브 저장 (재배포 시 갱신)
     GAS_ENDPOINT: 'https://script.google.com/macros/s/AKfycbw-4IIkE3yQzqeyKmD6E7C8X79ObXP5FrpgC2WULp0B6_ytXi9YmeeJWnkcXWOlUvuVVQ/exec',
 
-    // Google Cloud Vision API 키 (일반 TEXT_DETECTION). 콘솔에서 리퍼러·할당량 제한 필수.
+    // Google Cloud Vision API 키 (브라우저 직접 호출). 콘솔에서 리퍼러·할당량 제한 권장.
     GOOGLE_VISION_KEY: 'AIzaSyBnVV3zq7gSBUmUhrPE2hfGbA2PZbilyjw'
   };
+
+  // GAS 응답을 CORS 제약 없이 읽기 위한 JSONP (GET + script 태그)
+  function jsonp(params, timeoutMs){
+    return new Promise(function(resolve, reject){
+      if (!CONFIG.GAS_ENDPOINT) return reject(new Error('no endpoint'));
+      var cb = 'cb_' + Date.now() + '_' + Math.floor(Math.random()*10000);
+      var s = document.createElement('script');
+      var q = new URLSearchParams(Object.assign({}, params, { callback: cb })).toString();
+      var done = function(fn){ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } s.remove(); fn(); };
+      window[cb] = function(data){ done(function(){ resolve(data); }); };
+      s.onerror = function(){ done(function(){ reject(new Error('network')); }); };
+      s.src = CONFIG.GAS_ENDPOINT + '?' + q;
+      document.body.appendChild(s);
+      setTimeout(function(){ if (window[cb]) done(function(){ reject(new Error('timeout')); }); }, timeoutMs || 25000);
+    });
+  }
 
   /* =====================================================================
      상태 & 유틸
      ===================================================================== */
   const $ = (id) => document.getElementById(id);
-  const screens = ['authScreen','homeScreen','adminScreen','captureScreen','previewScreen'];
+  const screens = ['authScreen','homeScreen','historyScreen','adminScreen','captureScreen','previewScreen'];
   const state = { emp:'', type:'', photoDataUrl:'', vendor:'', date:'', amount:'',
                   teamCount:1, shots:[], receipts:[], isAdmin:false, recipient:'' };
 
@@ -328,22 +361,6 @@
   }
   const onlyDigits = (v) => (v||'').replace(/[^\d]/g,'');
   const comma = (v) => onlyDigits(v).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-
-  // GAS 응답을 CORS 제약 없이 읽기 위한 JSONP (GET + script 태그)
-  function jsonp(params, timeoutMs){
-    return new Promise((resolve, reject)=>{
-      if (!CONFIG.GAS_ENDPOINT) return reject(new Error('no endpoint'));
-      const cb = 'cb_' + Date.now() + '_' + Math.floor(Math.random()*10000);
-      const s = document.createElement('script');
-      const q = new URLSearchParams(Object.assign({}, params, { callback: cb })).toString();
-      const done = (fn)=>{ try{ delete window[cb]; }catch(e){ window[cb]=undefined; } s.remove(); fn(); };
-      window[cb] = (data)=> done(()=> resolve(data));
-      s.onerror = ()=> done(()=> reject(new Error('network')));
-      s.src = CONFIG.GAS_ENDPOINT + '?' + q;
-      document.body.appendChild(s);
-      setTimeout(()=>{ if (window[cb]) done(()=> reject(new Error('timeout'))); }, timeoutMs || 25000);
-    });
-  }
 
   /* =====================================================================
      사번 인증 + 관리자 판별
@@ -394,6 +411,54 @@
 
   // 관리자 → 일반 제출 화면으로 전환
   $('adminToUser').addEventListener('click', ()=> show('homeScreen'));
+
+  // 제출내역 보기
+  $('historyBtn').addEventListener('click', ()=> openHistory());
+  $('historyBack').addEventListener('click', ()=> show('homeScreen'));
+
+  async function openHistory(){
+    $('histEmp').textContent = state.emp + '님';
+    $('histList').innerHTML = '';
+    $('histEmpty').hidden = true;
+    $('histLoading').hidden = false;
+    show('historyScreen');
+    let rows = [];
+    try {
+      const r = await jsonp({ action:'myHistory', emp: state.emp }, 20000);
+      if (r && r.ok) rows = r.rows || [];
+    } catch(e){ console.error(e); toast('내역을 불러오지 못했습니다.'); }
+    $('histLoading').hidden = true;
+    renderHistory(rows);
+  }
+
+  function renderHistory(rows){
+    const box = $('histList'); box.innerHTML = '';
+    if (!rows.length){ $('histEmpty').hidden = false; return; }
+    $('histEmpty').hidden = true;
+    // 최신 일자 먼저 (동일 일자는 기록시각 최신순) — 서버 정렬과 별개로 한 번 더 보장
+    rows = rows.slice().sort((a,b)=>{
+      const da=a.date||'', db=b.date||''; if (da!==db) return da<db?1:-1;
+      const ra=a.recorded||'', rb=b.recorded||''; return ra<rb?1:(ra>rb?-1:0);
+    });
+    rows.forEach(row=>{
+      const card = document.createElement('div');
+      card.className = 'bg-white rounded-2xl card-shadow p-4';
+      const linkHtml = row.link
+        ? `<a href="${row.link}" target="_blank" rel="noopener" class="text-[12px] font-medium text-gold-500 hover:text-gold-400">영수증 보기 ›</a>`
+        : `<span class="text-[12px] text-navy-600/40">영수증 없음</span>`;
+      card.innerHTML =
+        `<div class="flex items-start justify-between gap-3">`
+      +   `<div>`
+      +     `<p class="text-[15px] font-semibold text-navy-900">${esc_(row.vendor||'-')}</p>`
+      +     `<p class="text-[12px] text-navy-600/60 mt-0.5">${esc_(row.date||'')} · ${row.teamCount||'-'}팀 · 사번 ${esc_(row.emp||'')}</p>`
+      +   `</div>`
+      +   `<p class="text-[15px] font-semibold text-navy-900 whitespace-nowrap">${comma(String(row.total||0))}원</p>`
+      + `</div>`
+      + `<div class="mt-2 pt-2 border-t border-navy-900/8">${linkHtml}</div>`;
+      box.appendChild(card);
+    });
+  }
+  function esc_(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
   // 관리자: 기간별 정산 발송 (GAS가 메일 발송 + 첨부 + 로그 처리)
   $('admSendBtn').addEventListener('click', async ()=>{
@@ -479,17 +544,18 @@
     updateProgress();
     try {
       camStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } }, audio: false
+        video: { facingMode: { ideal: 'environment' },
+                 width: { ideal: 2560 }, height: { ideal: 1920 } }, audio: false
       });
       $('camVideo').srcObject = camStream;
       await $('camVideo').play().catch(()=>{});
       $('camWrap').hidden = false; $('camHint').hidden = false; $('photoBox').hidden = true;
     } catch(err){
       console.warn('카메라 직접 사용 불가, 파일 촬영으로 전환:', err?.message);
-      toast('카메라를 직접 열 수 없어 한 장씩 촬영합니다.');
+      toast('카메라를 직접 열 수 없어 사진 선택으로 진행합니다.');
       $('camWrap').hidden = true; $('camHint').hidden = true;
       $('photoBox').hidden = false;
-      $('captLabel').textContent = `${state.shots.length+1}번째 영수증 촬영`;
+      $('captLabel').textContent = '영수증 사진 선택 / 촬영';
     }
   });
 
@@ -508,26 +574,33 @@
     if (!w || !h){ toast('카메라 준비 중입니다. 잠시 후 다시 눌러주세요.'); return; }
     c.width = w; c.height = h;
     c.getContext('2d').drawImage(v, 0, 0, w, h);
-    const dataUrl = renderJpeg(c, 1500, 0.8);   // 프레임 압축(최종 합본에서 재압축)
-    addShot(dataUrl);
+    pushShot(renderJpeg(c, 2400, 0.92));
+    checkCaptureComplete();
   });
 
-  // 파일 촬영 폴백: 한 장 → 저장 → 다음 (카메라 직접 불가 환경)
+  // 파일 폴백: 여러 장 한 번에 선택/촬영 → 모두 추가 후 완료 체크
   $('photoInput').addEventListener('change', async (e)=>{
-    const file = e.target.files[0]; if (!file) return;
+    const files = Array.from(e.target.files || []);
     $('photoInput').value = '';
-    const dataUrl = await compressImage(file);
-    addShot(dataUrl);
-    if (state.shots.length < state.teamCount){
-      $('captLabel').textContent = `${state.shots.length+1}번째 영수증 촬영`;
+    if (!files.length) return;
+    for (const f of files){
+      const dataUrl = await compressImage(f);
+      pushShot(dataUrl);
     }
+    if (state.shots.length < state.teamCount){
+      $('captLabel').textContent = `사진 선택 / 촬영 (${state.shots.length}/${state.teamCount})`;
+    }
+    checkCaptureComplete();
   });
 
-  // 촬영 1장 저장 → 썸네일 추가 → 팀수 채우면 일괄 OCR
-  function addShot(dataUrl){
+  // 촬영/선택 1장 저장 → 썸네일 추가 (OCR은 완료 후 일괄)
+  function pushShot(dataUrl){
     state.shots.push(dataUrl);
     addThumb(dataUrl, state.shots.length);
     updateProgress();
+  }
+  // 팀수만큼 모이면 카메라 종료 후 일괄 OCR
+  function checkCaptureComplete(){
     if (state.shots.length >= state.teamCount){
       stopCamera();
       $('camWrap').hidden = true; $('camHint').hidden = true; $('photoBox').hidden = true;
@@ -586,7 +659,7 @@
     recomputeTotal();
   }
 
-  // 단일 이미지 OCR → { amounts, vendor, date }
+  // 단일 이미지 OCR → { amounts, vendor, date } (브라우저에서 Vision 직접 호출)
   async function ocrImage(dataUrl){
     if (!CONFIG.GOOGLE_VISION_KEY){
       return { amounts:[], vendor:'', date:new Date().toISOString().slice(0,10) };
@@ -604,11 +677,12 @@
         })
       });
     const data = await res.json();
-    if (data.error || data.responses?.[0]?.error){
+    if (data.error || (data.responses && data.responses[0] && data.responses[0].error)){
       throw new Error((data.error || data.responses[0].error).message || 'Vision API 오류');
     }
-    const r = data.responses?.[0] || {};
-    const text = r.fullTextAnnotation?.text || r.textAnnotations?.[0]?.description || '';
+    const r = (data.responses && data.responses[0]) || {};
+    const text = (r.fullTextAnnotation && r.fullTextAnnotation.text)
+               || (r.textAnnotations && r.textAnnotations[0] && r.textAnnotations[0].description) || '';
     const parsed = parseReceipt(text);
     return { amounts: parsed.amounts, vendor: extractVendorTopText(r), date: parsed.date };
   }
@@ -630,23 +704,23 @@
       const c = document.createElement('canvas'); c.width=W; c.height=H;
       const ctx = c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
       let y=0; imgs.forEach((im,i)=>{ const h=scaledH[i]; ctx.drawImage(im,0,y,W,h); y+=h+gap; });
-      // 첨부 한도(460KB) 맞춰 적응형 압축
-      const full = c.toDataURL('image/jpeg', 0.85);
+      // 저장 한도 내에서 해상도 우선 적응형 압축
+      const full = c.toDataURL('image/jpeg', 0.92);
       const tmp = new Image();
       tmp.onload = ()=>{
-        const steps=[[2000,0.8],[1800,0.7],[1600,0.6],[1400,0.5],[1200,0.45],[1000,0.4],[900,0.4]];
+        const steps=[[3000,0.9],[2800,0.85],[2600,0.8],[2400,0.75],[2200,0.7],[2000,0.6],[1800,0.5]];
         let out = full;
-        for (const [dim,q] of steps){ out = renderJpeg(tmp, dim, q); if (dataUrlBytes(out) <= ATTACH_TARGET) break; }
+        for (const [dim,q] of steps){ out = renderJpeg(tmp, dim, q); if (dataUrlBytes(out) <= STORAGE_TARGET) break; }
         resolve(out);
       };
       tmp.src = full;
     });
   }
 
-  // 적응형 압축: EmailJS Personal 플랜 첨부 한도(500KB) 아래로 들어올 때까지
-  // 품질→해상도 순으로 단계적으로 줄인다. 목표는 여유를 둔 460KB.
-  const ATTACH_TARGET = 460 * 1024;   // 바이트
-  function dataUrlBytes(dataUrl){      // base64 → 실제 디코드 용량(첨부 크기 기준)
+  // 적응형 압축: 저장용 한도 아래로 들어올 때까지 품질→해상도 순으로 단계적 축소.
+  //  드라이브 저장·관리자 첨부를 고려해 한 장당 약 1.5MB까지 허용(해상도 우선).
+  const STORAGE_TARGET = 1.5 * 1024 * 1024;   // 바이트
+  function dataUrlBytes(dataUrl){      // base64 → 실제 디코드 용량
     const b64 = dataUrl.split(',')[1] || '';
     const pad = (b64.endsWith('==')?2:(b64.endsWith('=')?1:0));
     return Math.floor(b64.length * 3 / 4) - pad;
@@ -662,15 +736,15 @@
     return new Promise((resolve)=>{
       const img = new Image();
       img.onload = ()=>{
-        // 시도할 (긴변, 품질) 조합 — 점점 더 강하게 압축
+        // 고해상도 우선 → 한도 초과 시 점진적 축소
         const steps = [
-          [1600,0.8],[1600,0.65],[1400,0.6],[1200,0.55],
-          [1100,0.5],[1000,0.45],[900,0.4],[800,0.4],[700,0.4]
+          [2400,0.92],[2400,0.85],[2200,0.8],[2000,0.78],
+          [1800,0.72],[1600,0.65],[1400,0.6],[1200,0.5]
         ];
         let out = renderJpeg(img, steps[0][0], steps[0][1]);
         for (const [dim,q] of steps){
           out = renderJpeg(img, dim, q);
-          if (dataUrlBytes(out) <= ATTACH_TARGET) break;
+          if (dataUrlBytes(out) <= STORAGE_TARGET) break;
         }
         resolve(out);
       };
@@ -835,10 +909,9 @@
      (4) 발송 — EmailJS 요약 메일(첨부 없음) + 구글시트/드라이브 저장
      ===================================================================== */
   $('sendBtn').addEventListener('click', async ()=>{
-    if (!CONFIG.GAS_ENDPOINT){ toast('구글 연동(GAS_ENDPOINT)이 설정되지 않았습니다.'); return; }
     const btn = $('sendBtn'); btn.disabled = true; btn.textContent = '발송·저장 중…';
     try {
-      await saveToGoogle();          // 구글에서 메일 발송 + 시트 기록 + 드라이브 저장
+      await saveToGoogle();          // 서버(Apps Script)에서 메일 발송 + 시트 기록 + 드라이브 저장
       openDone('발송 완료', '영수증이 정상적으로 발송되었습니다.',
                ()=>{ resetCapture(); show('homeScreen'); });
     } catch(err){
@@ -849,8 +922,8 @@
     }
   });
 
-  // Google Apps Script 웹앱으로 전송 → 메일 발송 + 시트 기록 + 드라이브에 영수증 저장
-  //  CORS 프리플라이트를 피하기 위해 text/plain(단순 요청)으로 보냄.
+  // GAS 웹앱으로 전송 → 메일 발송 + 시트 기록 + 드라이브에 영수증(합본) 저장
+  //  CORS 프리플라이트를 피하려 text/plain(단순 요청)으로 보냄.
   async function saveToGoogle(){
     const combined = await combineReceipts();         // 여러 장 → 1장으로 합성(드라이브 1파일 저장용)
     const payload = {
@@ -869,10 +942,9 @@
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     });
-    // 응답을 읽을 수 있으면 성공 여부 확인(읽기 실패해도 저장은 됐을 수 있음)
     let data = null;
     try { data = await res.json(); } catch(e){ /* CORS로 본문 못 읽는 경우 통과 */ }
-    if (data && data.ok === false) throw new Error(data.error || 'GAS 저장 실패');
+    if (data && data.ok === false) throw new Error(data.error || '저장 실패');
   }
 
   /* =====================================================================
