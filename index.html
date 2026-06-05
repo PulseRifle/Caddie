@@ -86,9 +86,6 @@
         <p class="text-[13px] text-navy-600/70">
           <span id="empBadge" class="font-semibold text-navy-900"></span> 님
         </p>
-        <button id="historyBtn" class="text-[12px] font-medium text-gold-500 hover:text-gold-400 transition flex items-center gap-1">
-          제출내역 ›
-        </button>
       </div>
       <p class="text-[12px] font-medium text-navy-700 mb-2.5">영수증 종류</p>
       <div class="space-y-3">
@@ -111,20 +108,6 @@
           <span class="text-navy-900/25 text-xl">›</span>
         </button>
       </div>
-    </section>
-
-    <!-- ============ (1-B) 내 제출내역 ============ -->
-    <section id="historyScreen" class="fade-in" hidden>
-      <button id="historyBack" class="text-[13px] text-navy-600/70 mb-4">‹ 뒤로</button>
-      <h2 class="text-base font-semibold mb-1"><span id="histEmp"></span> 제출내역</h2>
-      <p class="text-[13px] text-navy-600/70 mb-4">최근 제출한 내역입니다 (최신순).</p>
-
-      <div id="histLoading" class="text-[13px] text-navy-600/70 flex items-center gap-2 py-6 justify-center" hidden>
-        <span class="inline-block w-4 h-4 border-2 border-gold-500 border-t-transparent rounded-full animate-spin"></span>
-        불러오는 중…
-      </div>
-      <div id="histEmpty" class="text-[13px] text-navy-600/55 text-center py-10" hidden>제출한 내역이 없습니다.</div>
-      <div id="histList" class="space-y-3"></div>
     </section>
 
     <!-- ============ (1-A) 관리자 페이지 ============ -->
@@ -346,7 +329,7 @@
      상태 & 유틸
      ===================================================================== */
   const $ = (id) => document.getElementById(id);
-  const screens = ['authScreen','homeScreen','historyScreen','adminScreen','captureScreen','previewScreen'];
+  const screens = ['authScreen','homeScreen','adminScreen','captureScreen','previewScreen'];
   const state = { emp:'', type:'', photoDataUrl:'', vendor:'', date:'', amount:'',
                   teamCount:1, shots:[], receipts:[], isAdmin:false, recipient:'' };
 
@@ -411,54 +394,6 @@
 
   // 관리자 → 일반 제출 화면으로 전환
   $('adminToUser').addEventListener('click', ()=> show('homeScreen'));
-
-  // 제출내역 보기
-  $('historyBtn').addEventListener('click', ()=> openHistory());
-  $('historyBack').addEventListener('click', ()=> show('homeScreen'));
-
-  async function openHistory(){
-    $('histEmp').textContent = state.emp + '님';
-    $('histList').innerHTML = '';
-    $('histEmpty').hidden = true;
-    $('histLoading').hidden = false;
-    show('historyScreen');
-    let rows = [];
-    try {
-      const r = await jsonp({ action:'myHistory', emp: state.emp }, 20000);
-      if (r && r.ok) rows = r.rows || [];
-    } catch(e){ console.error(e); toast('내역을 불러오지 못했습니다.'); }
-    $('histLoading').hidden = true;
-    renderHistory(rows);
-  }
-
-  function renderHistory(rows){
-    const box = $('histList'); box.innerHTML = '';
-    if (!rows.length){ $('histEmpty').hidden = false; return; }
-    $('histEmpty').hidden = true;
-    // 최신 일자 먼저 (동일 일자는 기록시각 최신순) — 서버 정렬과 별개로 한 번 더 보장
-    rows = rows.slice().sort((a,b)=>{
-      const da=a.date||'', db=b.date||''; if (da!==db) return da<db?1:-1;
-      const ra=a.recorded||'', rb=b.recorded||''; return ra<rb?1:(ra>rb?-1:0);
-    });
-    rows.forEach(row=>{
-      const card = document.createElement('div');
-      card.className = 'bg-white rounded-2xl card-shadow p-4';
-      const linkHtml = row.link
-        ? `<a href="${row.link}" target="_blank" rel="noopener" class="text-[12px] font-medium text-gold-500 hover:text-gold-400">영수증 보기 ›</a>`
-        : `<span class="text-[12px] text-navy-600/40">영수증 없음</span>`;
-      card.innerHTML =
-        `<div class="flex items-start justify-between gap-3">`
-      +   `<div>`
-      +     `<p class="text-[15px] font-semibold text-navy-900">${esc_(row.vendor||'-')}</p>`
-      +     `<p class="text-[12px] text-navy-600/60 mt-0.5">${esc_(row.date||'')} · ${row.teamCount||'-'}팀 · 사번 ${esc_(row.emp||'')}</p>`
-      +   `</div>`
-      +   `<p class="text-[15px] font-semibold text-navy-900 whitespace-nowrap">${comma(String(row.total||0))}원</p>`
-      + `</div>`
-      + `<div class="mt-2 pt-2 border-t border-navy-900/8">${linkHtml}</div>`;
-      box.appendChild(card);
-    });
-  }
-  function esc_(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
   // 관리자: 기간별 정산 발송 (GAS가 메일 발송 + 첨부 + 로그 처리)
   $('admSendBtn').addEventListener('click', async ()=>{
