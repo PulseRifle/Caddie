@@ -143,7 +143,7 @@
     <section id="captureScreen" class="fade-in" hidden>
       <button class="backBtn text-[13px] text-navy-600/70 mb-4">‹ 뒤로</button>
       <h2 class="text-base font-semibold mb-1"><span class="typeLabel"></span> 영수증</h2>
-      <p class="text-[13px] text-navy-600/70 mb-5">팀수를 입력하고 영수증을 한 장씩 촬영하면, 각 캐디피 금액을 추출해 합산합니다.</p>
+      <p class="text-[13px] text-navy-600/70 mb-5">팀수를 입력한 뒤 카메라 촬영 또는 저장된 이미지 선택으로 영수증을 등록하면, 각 캐디피 금액을 추출해 합산합니다.</p>
 
       <!-- (A) 팀수 입력 -->
       <div id="teamCountStep">
@@ -154,17 +154,24 @@
                  class="flex-1 border border-navy-900/15 rounded-xl px-4 py-3 text-[18px] font-semibold text-center focus:border-gold-500 focus:ring-2 focus:ring-gold-500/15 transition" />
           <button id="teamPlus" type="button" class="w-12 h-12 rounded-xl border border-navy-900/15 text-2xl leading-none active:scale-95 transition">+</button>
         </div>
-        <p class="text-[12px] text-navy-600/55 mt-2">입력한 팀수만큼 영수증을 한 장씩 촬영합니다.</p>
-        <button id="startCaptureBtn"
-                class="w-full mt-5 bg-navy-900 text-white rounded-xl py-3.5 text-[15px] font-medium active:scale-[.99] transition">
-          촬영 시작
-        </button>
+        <p class="text-[12px] text-navy-600/55 mt-2">입력한 팀수만큼 영수증을 등록합니다. 등록 방식을 아래에서 선택하세요.</p>
+        <div class="grid grid-cols-2 gap-3 mt-5">
+          <button id="startCameraBtn" type="button"
+                  class="bg-navy-900 text-white rounded-xl py-3.5 text-[14px] font-medium active:scale-[.99] transition">
+            📷 카메라 촬영
+          </button>
+          <button id="startGalleryBtn" type="button"
+                  class="bg-white border border-navy-900/15 text-navy-900 rounded-xl py-3.5 text-[14px] font-medium active:scale-[.99] transition">
+            🖼️ 저장된 이미지
+          </button>
+        </div>
       </div>
 
       <!-- (B) 촬영 진행 -->
       <div id="captureStep" hidden>
         <div class="flex items-center justify-between mb-3">
-          <span class="text-[13px] font-medium text-navy-700">촬영 <span id="captProgress">0 / 0</span></span>
+          <span class="text-[13px] font-medium text-navy-700">등록 <span id="captProgress">0 / 0</span></span>
+          <button id="reSelectBtn" type="button" class="text-[11px] text-navy-600/50 hover:text-navy-900 transition">방식 다시 선택</button>
         </div>
 
         <!-- 라이브 카메라 (연속 촬영) -->
@@ -176,16 +183,22 @@
         </div>
         <p id="camHint" class="text-[12px] text-navy-600/55 mt-2 text-center" hidden>영수증을 비추고 셔터를 누르세요</p>
 
-        <!-- 카메라 폴백: 여러 장 한 번에 선택/촬영 -->
+        <!-- 저장된 이미지 선택 / 카메라 폴백 공용 -->
         <label id="photoBox" class="block border-2 border-dashed border-navy-900/15 rounded-2xl bg-white p-6 text-center cursor-pointer hover:border-gold-500/50 transition" hidden>
           <input id="photoInput" type="file" accept="image/*" multiple class="hidden" />
-          <div class="text-3xl mb-2">📷</div>
-          <p id="captLabel" class="text-[14px] font-medium">영수증 사진 선택 / 촬영</p>
-          <p class="text-[12px] text-navy-600/55 mt-1">여러 장을 한 번에 선택할 수 있습니다 (팀수만큼)</p>
+          <div id="captIcon" class="text-3xl mb-2">🖼️</div>
+          <p id="captLabel" class="text-[14px] font-medium">저장된 이미지 선택</p>
+          <p id="captDesc" class="text-[12px] text-navy-600/55 mt-1">여러 장을 한 번에 선택할 수 있습니다</p>
         </label>
 
-        <!-- 촬영 썸네일 -->
+        <!-- 촬영/선택 썸네일 -->
         <div id="thumbStrip" class="flex gap-2 mt-3 flex-wrap"></div>
+
+        <!-- 팀수보다 적게 등록했을 때: 지금까지 등록분으로 추출 -->
+        <button id="ocrDoneBtn" type="button" hidden
+                class="w-full mt-4 bg-gold-500 text-white rounded-xl py-3 text-[14px] font-semibold active:scale-[.99] transition">
+          선택 완료 · 금액 추출
+        </button>
 
         <!-- 전체 금액 추출 진행 -->
         <div id="ocrAllStatus" class="text-[13px] text-navy-600/70 mt-5 flex items-center gap-2 justify-center" hidden>
@@ -450,16 +463,18 @@
   function resetCapture(){
     stopCamera();
     state.photoDataUrl=''; state.vendor=''; state.date=''; state.amount='';
-    state.teamCount=1; state.receipts=[]; state.shots=[];
+    state.teamCount=1; state.receipts=[]; state.shots=[]; state.mode='';
     $('teamCount').value = '1';
     $('teamCountStep').hidden = false;
     $('captureStep').hidden = true;
     $('camWrap').hidden = true;
     $('camHint').hidden = true;
     $('photoBox').hidden = true;
+    $('ocrDoneBtn').hidden = true;
     $('ocrAllStatus').hidden = true;
     $('fields').hidden = true;
-    $('photoInput').value=''; $('fVendor').value=''; $('fDate').value='';
+    $('photoInput').value=''; $('photoInput').removeAttribute('capture');
+    $('fVendor').value=''; $('fDate').value='';
     $('thumbStrip').innerHTML='';
     $('shotList').innerHTML=''; $('amountTotal').textContent='0원'; $('shotCount').textContent='0';
   }
@@ -469,14 +484,46 @@
   $('teamPlus').addEventListener('click',  ()=>{ const el=$('teamCount'); el.value=Math.min(30,(parseInt(el.value)||1)+1); });
 
   // 촬영 시작 → 라이브 카메라 열기(실패 시 파일 촬영 폴백)
-  $('startCaptureBtn').addEventListener('click', async ()=>{
+  // 공통 진입: 팀수 확정 후 모드별 시작
+  function startCapture(mode){
+    state.mode = mode;
     state.teamCount = Math.max(1, Math.min(30, parseInt($('teamCount').value)||1));
     state.shots = []; state.receipts = [];
     $('teamCountStep').hidden = true;
     $('captureStep').hidden = false;
     $('fields').hidden = true;
     $('thumbStrip').innerHTML = '';
+    $('ocrDoneBtn').hidden = true;
     updateProgress();
+    if (mode === 'gallery') openGallery(); else openCamera();
+  }
+
+  $('startCameraBtn').addEventListener('click', ()=> startCapture('camera'));
+  $('startGalleryBtn').addEventListener('click', ()=> startCapture('gallery'));
+
+  // 방식 다시 선택 → 팀수 화면으로 복귀
+  $('reSelectBtn').addEventListener('click', ()=>{
+    if (state.shots.length && !confirm('등록한 이미지가 모두 삭제됩니다. 계속할까요?')) return;
+    const tc = state.teamCount;
+    resetCapture();
+    $('teamCount').value = String(tc);
+  });
+
+  // (A) 저장된 이미지 선택 모드
+  function openGallery(){
+    stopCamera();
+    $('camWrap').hidden = true; $('camHint').hidden = true;
+    $('photoInput').removeAttribute('capture');      // capture 없음 → 갤러리 열림
+    $('photoBox').hidden = false;
+    $('captIcon').textContent = '🖼️';
+    $('captLabel').textContent = `저장된 이미지 선택 (0/${state.teamCount})`;
+    $('captDesc').textContent = '갤러리에서 영수증 사진을 여러 장 한 번에 선택할 수 있습니다.';
+    try { $('photoInput').click(); } catch(e){}      // 바로 선택창 띄우기
+  }
+
+  // (B) 카메라 촬영 모드 (라이브 실패 시 기기 카메라 앱으로 폴백)
+  async function openCamera(){
+    $('photoBox').hidden = true;
     try {
       camStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' },
@@ -484,15 +531,18 @@
       });
       $('camVideo').srcObject = camStream;
       await $('camVideo').play().catch(()=>{});
-      $('camWrap').hidden = false; $('camHint').hidden = false; $('photoBox').hidden = true;
+      $('camWrap').hidden = false; $('camHint').hidden = false;
     } catch(err){
-      console.warn('카메라 직접 사용 불가, 파일 촬영으로 전환:', err?.message);
-      toast('카메라를 직접 열 수 없어 사진 선택으로 진행합니다.');
+      console.warn('라이브 카메라 불가, 기기 카메라로 전환:', err && err.message);
       $('camWrap').hidden = true; $('camHint').hidden = true;
+      $('photoInput').setAttribute('capture','environment');   // 바로 카메라 앱 실행
       $('photoBox').hidden = false;
-      $('captLabel').textContent = '영수증 사진 선택 / 촬영';
+      $('captIcon').textContent = '📷';
+      $('captLabel').textContent = `영수증 촬영 (0/${state.teamCount})`;
+      $('captDesc').textContent = '탭하면 카메라가 열립니다. 한 장씩 촬영해 주세요.';
+      try { $('photoInput').click(); } catch(e){}
     }
-  });
+  }
 
   function updateProgress(){ $('captProgress').textContent = `${state.shots.length} / ${state.teamCount}`; }
 
@@ -513,35 +563,66 @@
     checkCaptureComplete();
   });
 
-  // 파일 폴백: 여러 장 한 번에 선택/촬영 → 모두 추가 후 완료 체크
+  // 파일 입력: 갤러리 선택 / 카메라 폴백 공용 → 그대로 OCR 파이프라인으로
   $('photoInput').addEventListener('change', async (e)=>{
     const files = Array.from(e.target.files || []);
-    $('photoInput').value = '';
+    e.target.value = '';
     if (!files.length) return;
-    for (const f of files){
+
+    const room = Math.max(0, state.teamCount - state.shots.length);
+    const picked = files.slice(0, room);
+    if (files.length > picked.length){
+      toast(`팀수(${state.teamCount})에 맞춰 ${picked.length}장만 등록했습니다.`);
+    }
+
+    $('ocrAllStatus').hidden = false;
+    let n = 0;
+    for (const f of picked){
+      $('ocrAllText').textContent = `이미지 불러오는 중… ${++n} / ${picked.length}`;
       const dataUrl = await compressImage(f);
+      if (!dataUrl){ toast(`'${f.name}' 형식은 불러올 수 없습니다.`); continue; }
       pushShot(dataUrl);
     }
-    if (state.shots.length < state.teamCount){
-      $('captLabel').textContent = `사진 선택 / 촬영 (${state.shots.length}/${state.teamCount})`;
-    }
+    $('ocrAllStatus').hidden = true;
+
+    const labelBase = (state.mode === 'gallery') ? '저장된 이미지 선택' : '영수증 촬영';
+    $('captLabel').textContent = `${labelBase} (${state.shots.length}/${state.teamCount})`;
     checkCaptureComplete();
   });
 
-  // 촬영/선택 1장 저장 → 썸네일 추가 (OCR은 완료 후 일괄)
+  // 1장 등록 → 썸네일 추가 (OCR은 등록 완료 후 일괄)
   function pushShot(dataUrl){
     state.shots.push(dataUrl);
     addThumb(dataUrl, state.shots.length);
     updateProgress();
+    updateDoneBtn();
   }
-  // 팀수만큼 모이면 카메라 종료 후 일괄 OCR
+
+  // 팀수보다 적게 등록된 상태면 '지금까지 등록분으로 추출' 버튼 노출
+  function updateDoneBtn(){
+    const n = state.shots.length;
+    const b = $('ocrDoneBtn');
+    b.hidden = !(n > 0 && n < state.teamCount);
+    b.textContent = `선택 완료 · ${n}장 금액 추출`;
+  }
+  $('ocrDoneBtn').addEventListener('click', ()=>{
+    if (!state.shots.length) return;
+    state.teamCount = state.shots.length;   // 실제 등록 장수로 확정
+    finishCapture();
+  });
+
+  // 팀수만큼 모이면 자동으로 일괄 OCR
   function checkCaptureComplete(){
-    if (state.shots.length >= state.teamCount){
-      stopCamera();
-      $('camWrap').hidden = true; $('camHint').hidden = true; $('photoBox').hidden = true;
-      runAllOcr();
-    }
+    if (state.shots.length >= state.teamCount) finishCapture();
   }
+  function finishCapture(){
+    stopCamera();
+    $('camWrap').hidden = true; $('camHint').hidden = true;
+    $('photoBox').hidden = true; $('ocrDoneBtn').hidden = true;
+    updateProgress();
+    runAllOcr();
+  }
+
   function addThumb(dataUrl, n){
     const t = document.createElement('div');
     t.className = 'relative';
@@ -669,6 +750,7 @@
   }
   function compressImage(file){
     return new Promise((resolve)=>{
+      const url = URL.createObjectURL(file);
       const img = new Image();
       img.onload = ()=>{
         // 고해상도 우선 → 한도 초과 시 점진적 축소
@@ -681,9 +763,11 @@
           out = renderJpeg(img, dim, q);
           if (dataUrlBytes(out) <= STORAGE_TARGET) break;
         }
+        URL.revokeObjectURL(url);
         resolve(out);
       };
-      img.src = URL.createObjectURL(file);
+      img.onerror = ()=>{ URL.revokeObjectURL(url); resolve(''); };   // 디코딩 실패(HEIC 등) 시 건너뜀
+      img.src = url;
     });
   }
 
